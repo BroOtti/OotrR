@@ -1,6 +1,6 @@
 # OoT Randomizer — Hookshot and emulator
 
-[![Latest release](https://img.shields.io/github/v/release/Mozencaz/OotrR?label=download)](https://github.com/Mozencaz/OotrR/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Mozencaz/OotrR?label=download)](https://github.com/Mozencaz/OotrR/releases/latest) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/dnqs4eRZC)
 
 **[Download the latest release](https://github.com/Mozencaz/OotrR/releases/latest)**
 (Windows `.zip` or Linux `.tar.gz`, portable, no installation).
@@ -43,6 +43,11 @@ the quality-of-life options below. Details of the full mode and in-game pilots:
 downloads the archive, verifies it against the release's `SHA256SUMS.txt`, swaps
 the executable in place and restarts; `data/` (seeds, settings) is kept. Run from
 the sources, it only points to the release page (use `git pull`).
+
+**Experimental versions:** tick *Use experimental versions (pre-releases)* in
+Setup to also be offered the GitHub pre-releases (`vX.Y.Z-beta.N`): new features
+first, possibly buggy. Untick it to go back: the next stable release replaces the
+experimental build.
 
 The game file must hold the base game **and** update v131072 in one `.nup`; the
 order of the packages inside it does not matter.
@@ -127,11 +132,9 @@ a time in server order: Link holds the item up (consumables arrive as a pickup).
 the game does not take after several tries is set aside and reported in the client log,
 so the next ones still arrive. Archipelago starting items are given at the end of the
 opening. Progressive items (hookshot, bow, bomb bag, wallet…) can be in any world:
-every copy, yours included, is handed over by the client, which gives the level above
-the one Link holds (a family whose lowest level stays with an unshuffled source, such as
-Darunia's bracelet, keeps fixed levels in your world). Limits: chest checks reach the
-server once the game writes its save; dungeon-bound keys (other than key rings and
-dungeon boss keys) stay in your world.
+every copy, found in your world or received, gives the level above the one Link holds,
+in any order. Limits: chest checks reach the server once the game writes its save;
+dungeon-bound keys (other than key rings and dungeon boss keys) stay in your world.
 
 ## Development
 
@@ -165,11 +168,25 @@ The glitchless logic is built in: `src/oot_rando/logic/world/`.
 Archipelago itself is not needed. Settings import/export in the Archipelago YAML
 format stays available (optional PyYAML).
 
+## Quality of life only
+
+To keep the game as it is and only skip the introduction cutscene and open chests without
+their cutscene, use the **Quality of life only** card of the Setup tab, or
+
+```
+python -m oot_rando qol-install GAME.nup MODS_FOLDER [--no-intro-skip] [--no-fast-chests]
+```
+
+It writes `OoT_QoL` (with a `manifest.json`, no seed) into the emulator's title folder
+`load/0400486024DEC000`, generated from your own game file. Installing again replaces
+it. A randomizer seed already contains these patches: while a seed is enabled, turn
+`OoT_QoL` off (the install warns about it).
+
 ## Layout
 
 ```
 src/oot_rando/
-  __main__.py      entry point (GUI; audit, verify, memory, selftest, apworld, ap-install, ap-client)
+  __main__.py      entry point (GUI; audit, verify, memory, selftest, apworld, ap-install, qol-install, ap-client)
   paths.py         application folders (sources: build/; portable: data/)
   formats/         NUP, zstd/SARC resources, BYML, MSBT
   game/            remake map reading, matching, item forms

@@ -11,7 +11,9 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION, generate
-from oot_rando.randomizer.randomizer_services import read_artifact, generate_in_mods, validate_mod_directory
+from oot_rando.randomizer.randomizer_services import (read_artifact, generate_in_mods, qol_seed_warning,
+                                                      validate_mod_directory)
+from oot_rando.randomizer.qol_install import install_qol
 from oot_rando.tracker.auto_tracker import TrackerSession, newest_save
 from oot_rando.tracker import game_overlay
 from oot_rando.tracker import live_memory
@@ -57,8 +59,8 @@ OPTION_COPY = {
     'shuffle_chests': ('Shuffle chest contents', 'Important items can be in any selected chest.'),
     'chest_matching': ('Locations used for progression', 'Identified chests: exact matches. By zone: more chests, with the most cautious access conditions of the zone.'),
     'shuffle_remake_items': ('Include remake-only items', 'Adds the items specific to this version of the game to the shuffle, without making them required for progression.'),
-    'progressive_order': ('Find upgrades in order', 'For example: get the Hookshot before the Longshot.'),
-    'progressive_strict': ('Require the previous level for each upgrade', 'Reaching an upgrade requires owning its previous level.'),
+    'progressive_order': ('Find upgrades in order', 'Always on: each upgrade found gives the next level (Hookshot, then Longshot), whatever the order. Kept for older settings.'),
+    'progressive_strict': ('Require the previous level for each upgrade', 'Always on: an upgrade never skips a level. Kept for older settings.'),
     'shopsanity': ('Items shuffled per shop', 'Shuffled items cost 10 rupees. One copy of the required purchases stays available; masks are kept.'),
     'tokensanity': ('Gold Skulltulas', 'Skulltulas give a shuffled reward; their tokens can be elsewhere.'),
     'shuffle_freestanding_items': ('Freestanding items', 'Includes rupees, hearts and heart pieces lying in the world.'),
@@ -149,6 +151,7 @@ class Application:
         self.pool = {name: tk.BooleanVar(value=name.startswith('TBox_Rupee_')) for name in POOL}
         self.categories = {name: tk.BooleanVar(value=False) for name in CATEGORIES}
         self.excluded = {check['id']: tk.BooleanVar(value=False) for check in CHECKS}
+        self.qol_options = {'intro_skip': tk.BooleanVar(value=True), 'fast_chests': tk.BooleanVar(value=True)}
         self.show_completed = tk.BooleanVar(value=True)
         self.show_blocked = tk.BooleanVar(value=True)
         self.tracker_search, self.save_path = tk.StringVar(), tk.StringVar()
@@ -161,6 +164,8 @@ class Application:
         self.mods.trace_add('write', lambda *args: self.write_app_state(mods_dir=self.mods.get()))
         self.check_updates = tk.BooleanVar(value=self.app_state.get('check_updates', True) is not False)
         self.check_updates.trace_add('write', lambda *args: self.write_app_state(check_updates=self.check_updates.get()))
+        # Opt-in: also offer the GitHub pre-releases (vX.Y.Z-beta.N) when checking for updates.
+        self.experimental_updates = tk.BooleanVar(value=self.app_state.get('experimental_updates') is True)
         self.updating, self.update_silent = False, True   # False, 'check' or 'install'
         self.extra_emulators = tk.StringVar(value=self.app_state.get('extra_emulators') or '')
         live_memory.set_extra_emulators(self.extra_emulators.get())
@@ -347,6 +352,7 @@ class Application:
         ttk.Label(box, text='Live tracking finds Hookshot, Longshot, Lichii, Ryuchii, Eden, yuzu, suyu, citron and sudachi. '
                   'Another yuzu-based emulator? Add its .exe name here (comma-separated).',
                   style='Small.TLabel', wraplength=780).pack(anchor='w')
+        self.build_qol_card(parent)
         box = self.card(parent, 'Save', 'The tracker reads your progress.sav. It is found automatically; pick it by hand only if needed.')
         ttk.Checkbutton(box, text='Follow the most recent save (every slot)', variable=self.auto_save,
                         command=self.auto_save_toggled).pack(anchor='w', pady=(0, 12))
@@ -361,6 +367,47 @@ class Application:
         ttk.Button(row, text='Reload the tracker', command=self.load_tracker).pack(side='left', padx=(8, 0))
         ttk.Label(box, textvariable=self.connection_status, style='Small.TLabel', wraplength=780).pack(anchor='w')
         ttk.Label(box, textvariable=self.turbo_status, style='Small.TLabel').pack(anchor='w')
+        box = self.card(parent, 'Application updates', f'Installed version: {APP_VERSION}'
+                        + (' (experimental)' if updater.is_prerelease(APP_VERSION) else '') + '.')
+        ttk.Checkbutton(box, text='Use experimental versions (pre-releases)', variable=self.experimental_updates,
+                        command=self.experimental_toggled).pack(anchor='w')
+        ttk.Label(box, text='Experimental versions get new features first, but may contain bugs or break a seed in progress. '
+                  'Untick to go back to stable versions: you move to the next stable release once it is out.',
+                  style='Small.TLabel', wraplength=780).pack(anchor='w', pady=(4, 0))
+
+    def experimental_toggled(self):
+        enabled = self.experimental_updates.get()
+        self.write_app_state(experimental_updates=enabled)
+        if enabled:
+            self.check_for_updates(silent=False)
+
+    def build_qol_card(self, parent):
+        box = self.card(parent, 'Quality of life only', 'No randomization: only the options below, in their own folder (OoT_QoL).')
+        ttk.Checkbutton(box, text='Skip the introduction cutscene', variable=self.qol_options['intro_skip']).pack(anchor='w')
+        ttk.Checkbutton(box, text='Chests (big and small) without cutscene', variable=self.qol_options['fast_chests']).pack(anchor='w')
+        row = self.buttons(box, pady=(8, 0))
+        self.qol_button = ttk.Button(row, text='Install quality of life only', command=self.install_qol_only)
+        self.qol_button.pack(side='right')
+        ttk.Label(row, text='Close the game first. A randomizer seed in the same folder turns it off.',
+                  style='Muted.TLabel').pack(side='right', padx=(0, 16))
+
+    def install_qol_only(self):
+        try:
+            nup = Path(self.nup.get())
+            if not nup.is_file():
+                raise ValueError('Select the local NUP file.')
+            mods = validate_mod_directory(self.mods.get())
+            options = {name: variable.get() for name, variable in self.qol_options.items()}
+            if not any(options.values()):
+                raise ValueError('Tick at least one quality-of-life option.')
+            self.run_job(lambda progress: install_qol(nup, mods, progress=progress, **options), self.qol_installed)
+        except Exception as error:
+            self.error(error)
+
+    def qol_installed(self, result):
+        self.status.set('Quality of life installed: ' + str(result.folder))
+        warnings = ''.join('\n\n' + warning for warning in result.warnings)
+        messagebox.showinfo('Quality of life installed', 'Installed in:\n' + str(result.folder) + warnings)
 
     def build_home(self):
         parent = self.home_body
@@ -1035,7 +1082,8 @@ class Application:
             values = rando_options.validate(self.full_values())
             name = filedialog.asksaveasfilename(defaultextension='.yaml', filetypes=[('Archipelago YAML', '*.yaml')])
             if name:
-                Path(name).write_text(rando_options.to_ap_yaml(values), encoding='utf-8')
+                Path(name).write_text(rando_options.to_ap_yaml(values, open_forest=self.options['open_forest'].get()),
+                                      encoding='utf-8')
                 self.status.set('Archipelago YAML exported.')
         except Exception as error:
             self.error(error)
@@ -1157,7 +1205,8 @@ class Application:
         self.busy = True
         self.progress.pack(side='right', padx=(12, 0))
         self.progress.start()
-        self.generate_button.state(['disabled'])
+        for button in (self.generate_button, self.qol_button):
+            button.state(['disabled'])
         def worker():
             try:
                 result = function(lambda text: self.events.put(('progress', text)))
@@ -1186,8 +1235,10 @@ class Application:
         self.use_artifact(directory)
         self.show_page('tracker')
         self.status.set('Seed generated and installed: ' + str(installed))
+        warning = qol_seed_warning(Path(installed).parent)
         messagebox.showinfo('Seed ready', 'Seed installed in:\n' + str(installed)
-                            + '\n\nStart a new game to enable automatic tracking and first collections.')
+                            + '\n\nStart a new game to enable automatic tracking and first collections.'
+                            + ('\n\n' + warning if warning else ''))
 
     def use_artifact(self, directory):
         manifest, _ = read_artifact(directory)
@@ -1792,7 +1843,8 @@ class Application:
                     self.busy = False
                     self.progress.stop()
                     self.progress.pack_forget()
-                    self.generate_button.state(['!disabled'])
+                    for button in (self.generate_button, self.qol_button):
+                        button.state(['!disabled'])
                     if kind == 'error':
                         self.error(payload)
                     else:
@@ -1821,10 +1873,11 @@ class Application:
             self.update_silent = self.update_silent and silent   # a click shows the running check's answer
             return
         self.updating, self.update_silent = 'check', silent
+        experimental = self.experimental_updates.get()
 
         def worker():
             try:
-                self.events.put(('update-found', (updater.latest_release(), silent)))
+                self.events.put(('update-found', (updater.latest_release(experimental=experimental), silent)))
             except updater.UpdateError as error:
                 self.events.put(('update-error', (error, silent)))
         threading.Thread(target=worker, daemon=True).start()
@@ -1838,6 +1891,8 @@ class Application:
             return
         notes = release.notes.strip()
         notes = ('\n\n' + (notes[:600] + '…' if len(notes) > 600 else notes)) if notes else ''
+        if updater.is_prerelease(release.version):
+            notes = '\n\nExperimental version: it may contain bugs.' + notes
         if not updater.can_self_update():
             if messagebox.askyesno('Update available', f'Version {release.version} is available (you have '
                                    f'{APP_VERSION}).{notes}\n\nOpen the release page?'):

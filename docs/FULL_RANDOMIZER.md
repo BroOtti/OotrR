@@ -10,7 +10,7 @@ and logic are checked statically (`python -m oot_rando verify`); items marked
 | Option | Source | Write into the game |
 |---|---|---|
 | **Chests** (`shuffle_chests`) | every chest, major items included | `Dynamic.Drop__DropActor` of the chest |
-| **Gold Skulltulas** (`tokensanity`: dungeons / overworld / all) | 100 skulltulas = the 100 AP locations | `Drop__DropActor` added to the enemy (native instance parameter) |
+| **Gold Skulltulas** (`tokensanity`: dungeons / overworld / all) | 100 skulltulas = the 100 AP locations | `Drop__DropActor` added to the enemy (native instance parameter); every item but the token is dropped by a pickup built on the token (see below) |
 | **Shops** (`shopsanity`: 1 to 4 items per shop, or random) | 64 stalls, masks excluded | stall `Gyaml`; fixed price of 10 rupees; bought once |
 | **Freestanding items** (`shuffle_freestanding_items`) | non-respawning heart pieces, rupees and hearts | item `Gyaml` |
 | **NPC gifts and minigames** (`shuffle_npc_gifts`) | 29 gifts (`extra_sources.NPC_GIFTS`) | item parameter of the event (`ActorName`, `ReveiveItem`…) via `evfl` |
@@ -33,8 +33,8 @@ shuffled reward only once (`repeatable_adapter.py`), then go back to their vanil
 * **Starting inventory** (`start_inventory_from_pool`, AP name): items held from the
   start, given silently at the end of the opening (`event_patch.add_pouch_items`). A
   copy found in the item pool is replaced by rupees; progressive copies take the
-  lowest tiers of their family. Songs are given the same way (`Item_Melody_*`);
-  tunics and trade items have no pouch actor yet. In a multiworld, the apworld's own `start_inventory_from_pool` is used.
+  lowest levels of their family. Songs, tunics and trade items have no pouch actor
+  yet. In a multiworld, the apworld's own `start_inventory_from_pool` is used.
 * **Item pool** (`item_pool_value`): plentiful (one extra copy of each major
   non-progressive item, replacing filler), scarce (at most 3 bottles, half the
   hearts), minimal (one bottle, no hearts, double defense or capacity upgrades). The
@@ -101,6 +101,15 @@ model and content of the item) or `Shop_Rando_<item>` (behaviour of an arrow
 stall), with their RSDB rows and RESTBL entry. AP "Buy …" purchases never leave
 the shops and keep at least one copy on sale.
 
+Gold skulltula drops: the skulltula hands its saved `Bool64bitKey` row to its drop
+(blackboard `GoldTokenGmdHash`), and only the token's AI writes it, when the get
+event of the pickup ends. A native rupee, heart or ammo pickup never does: the
+skulltula came back and its check was never counted. Every skulltula drop but the
+token is therefore built on the token: `<native pickup>_GS` (e.g. `Obj_Rupee_Red_GS`,
+names of REALAZK's token kits, at most 25 characters) or `Obj_Rando_<item>`. Their
+pouch sets `PlayGetEventManyTimes` and `IsPlayGetEventPouchMax`, so the get event
+plays on every pickup, even at full capacity. The tracker reads the same row.
+
 ## Dungeon-specific keys (`key_adapter.py`)
 
 Remake keys are generic: `Item_Dungeon_SmallKey`/`BossKey` are credited by native
@@ -123,6 +132,35 @@ structure `DungeonInfo.<folder>` (RSDB `DungeonParam` rows): `.SmallKeyNum`,
 * **Not validated in game**: opening a door with a key ring found outside the
   dungeon, the boss door with a key found elsewhere.
 
+## Progressive items (`progressive.py`)
+
+Issue #23: a copy placed with a fixed level could be found before the lower one (the
+large bullet bag before the slingshot), and a later lower level could take capacity
+away. Every copy is now a *token* that becomes the next level in game:
+
+* Each copy placed in this world is its own pouch actor `Item_Prog_<family>_<n>`
+  (built like the souls: Forest Medallion key item, model of the family's first
+  level, texts, `IsGet` flag), plus a saved flag `RandoProg.<token>`.
+* So are the unshuffled sources of a fixed level (a chest or a freestanding item
+  left in place, Darunia's bracelet: `STATIC_TIER_SOURCES`): found after a shuffled
+  copy, their own level could be lower than the one Link holds. The other native
+  sources (bag and wallet upgrades of NPCs) already give the next level.
+* Converter: `ActionGuide/ActionGuide` (end of every item get) and
+  `ActionGuide/ActionGuideForShop` (shops) first call the entry `RandoProgressive`:
+  for each token got (`IsGet`) and not converted yet, set its flag, take it out of the
+  pouch (as trade items are) and give the level above the highest one held, through
+  `GetPouchContent/GetPouchContentByActorName` (get window, no pose; the ocarinas
+  too). Levels are tested on their pouch names (`Weapon_Range_Bow`,
+  `Armor_Child_Gauntlet_Goron`…) and the magic meter on `IsGet.Item_FairyBless_*`.
+  Holding the last level gives it again.
+* Gifts whose flow never reaches `ActionGuide` (boss rewards, Saria, Darunia…)
+  call `RandoProgressive` right after the gift (`RandoProgAfter_<event>`). A token got
+  any other way is converted at the next item get.
+* Archipelago: progressive copies can go to any world. Copies received from other
+  worlds go through the mailbox, which gives the same next level (`ap_mailbox`).
+* **Not validated in game**: the token get then the level's window, a token in a shop,
+  a token from Saria, a boss or Darunia, the take out of the pouch.
+
 ## Enemy souls (`soul_adapter.py`)
 
 Modes `bosses`, `regional`, `all` (46 souls, 845 enemies). `Presence` is added to
@@ -141,12 +179,20 @@ the dialogue box stayed empty and blocked the game. A new save is required.
 - Skulltulas, stalls: conservative group per zone. The remake puts Lake Hylia and
   Lon Lon Ranch in the Hyrule Field maps; the matching accounts for it.
 - Pots, bushes, rocks, crates, beehives, trees, lying rupees: rule of the **whole zone**.
+- A source found only in the child maps (`*_Child_*`) or only in the adult maps
+  (`*_Adult_*`) is collected at that age: each of its AP locations that this age can
+  ever reach must be reachable **at that age** (`Child|`/`Adult|` members, the AP
+  `is_child`/`is_adult` rules). Being adult needs `Time Travel` (Door of Time: Song
+  of Time, which the child gets for the three spiritual stones). A source with no
+  such location only receives filler. Its tracker name ends in `(child)`/`(adult)`;
+  an object on both maps under one hash is one check for either age.
 - NPCs: exact AP location; for the man on the roof (adult only in the remake) and
   the lake lab (child only), the age rule is added.
 - A group holding a location that the AP rules never reach only receives filler.
 - Progressive items (hookshot/longshot, gauntlets, bomb bag, bow, slingshot,
-  wallets, scales): the lower level always goes to the earliest sphere (the two
-  values are swapped when needed); optional strict order.
+  wallets, scales…): each copy gives the level above the one Link holds, so the
+  n-th copy found is level n, as the AP logic counts them (see *Progressive items*
+  below). `progressive_order` and `progressive_strict` no longer change anything.
 - Souls: entering a dungeon requires the souls of the families present; a boss
   room requires the boss soul; conditional chests require the souls of their map.
   Excluded from souls: Poes, Stalchildren, Leevers, Gerudo, gold skulltulas,
@@ -162,9 +208,10 @@ the dialogue box stayed empty and blocked the game. A new save is required.
 | `Song from Saria` | Zelda's Letter | learnt during the Fire stone quest (after Darunia) | letter + Darunia's chamber as child |
 | `here(...)` with `can_plant_bean` | current age | the child plants, the adult uses | becomes `at(<region>, ...)` |
 
-Kokiri Forest positions (`extra_sources.kokiri_spot`): copies in the child map, in
-the village (before Mido, outside the grotto) are reachable at start; adult-only
-copies after time travel; bean platform rupees use `KF Bean Platform Red Rupee`.
+Kokiri Forest positions (`extra_sources.kokiri_spot`): copies in the village (before
+Mido, outside the grotto) use `KF Links House Pot`, at the age of their maps (child
+copies at start, adult-only copies once the adult reaches the forest); bean platform
+rupees use `KF Bean Platform Red Rupee`.
 Mido's house: the 4 grouped chests are matched to Mido's 4 AP chests.
 
 ## Mechanism cutscenes are never skippable
@@ -206,7 +253,9 @@ outside the maps are not covered (except chest events).
    Nabooru…) continue their story; persistence after save/reload.
 2. **Souls**: Queen Gohma does not appear without her soul; the soul item is
    received from a chest; the boss appears afterwards.
-3. **Skulltula**: a gold skulltula carrying another item drops it (and not a token too).
+3. **Skulltula**: a gold skulltula carrying another item (rupee, arrows, heart piece…)
+   drops it (and not a token too); after the pickup the skulltula stays dead after a
+   reload and its check counts in the tracker.
 4. **Derived freestanding item** (`Obj_Rando_*`): visible model, pickup, name, no respawn.
 5. **Shop**: a `Shop_Rando_*` item shows (name, price 10), the purchase gives the item.
 6. **NPC**: e.g. Dampé's digging or bowling gives the placed item and the NPC continues.
@@ -215,11 +264,14 @@ outside the maps are not covered (except chest events).
 8. **Great fairy / quest**: the right item is given; a replaced Saria ocarina does
    not also add the vanilla ocarina.
 9. **Boss heart container**: the placed item (visible on entering the room) can be picked up.
-10. **Songs**: a song cutscene giving another song shows only its text and adds the
+10. **Progressive items**: find the higher copy of a family first (e.g. a slingshot
+    token after the bullet bag was expected): the first one found gives the slingshot,
+    the next one the bag; a native chest found later never takes capacity away.
+11. **Songs**: a song cutscene giving another song shows only its text and adds the
     right song (menu, playable); one giving an item does not teach its melody; a song
     at a great fairy or a dungeon reward shows its text, nothing held; the windmill
     still plays its cutscene once Song of Storms was found elsewhere.
-11. **Big Poes**: with 3 to bring back, the collector rewards the third sale.
+12. **Big Poes**: with 3 to bring back, the collector rewards the third sale.
 
 Known limits: some NPCs decide "already given" from the vanilla item (e.g. silver
 scale for the diving game) and can give their new item again; shop texts of

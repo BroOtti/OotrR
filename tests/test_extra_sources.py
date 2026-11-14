@@ -10,8 +10,8 @@ from collections import Counter
 
 from oot_rando.logic import rando_options
 from oot_rando.game.extra_sources import NPC_GIFTS, EXCLUDED_NPC_LOCATIONS, scan_map_sources
-from oot_rando.randomizer.full_randomizer import enabled_sources, source_in_scope, tier_layout
-from oot_rando.game.item_forms import can_take, form_actor, is_derived, canonical_of
+from oot_rando.randomizer.full_randomizer import enabled_sources, source_in_scope
+from oot_rando.game.item_forms import can_take, form_actor, is_derived, is_world_derived, canonical_of
 
 NUP = os.environ.get('OOT_NUP')
 NEW_SOURCES = {'tokensanity': 'all', 'shopsanity': '4', 'shuffle_freestanding_items': 'all',
@@ -156,21 +156,6 @@ class Units(unittest.TestCase):
         self.assertFalse(source_in_scope({'source': 'shop', 'folder': 'Market'}, sources))
         self.assertEqual(enabled_sources(rando_options.defaults()), {})
 
-    def test_tier_layout(self):
-        chest = {'source': 'chest', 'ap': ['DC Bomb Bag Chest'], 'vanilla': 'Bomb Bag', 'before': 'Item_BombBag_Small'}
-        goron = {'source': 'npc', 'ap': ['GC Rolling Goron as Child'], 'vanilla': 'Bomb Bag',
-                 'before': 'Item_BombBag_Medium'}
-        matches = {'c': chest, 'g': goron}
-        # Chest only: the shuffled copy is the small bag, NPC upgrades stay dynamic.
-        self.assertEqual(tier_layout(matches, {'c': chest}, ['Bomb Bag'])['Bomb Bag'], [0])
-        # NPC only: the chest keeps the small bag, the NPC copy takes the next tier.
-        self.assertEqual(tier_layout(matches, {'g': goron}, ['Bomb Bag'])['Bomb Bag'], [1])
-        # Darunia unshuffled keeps the Goron bracelet.
-        silver = {'source': 'chest', 'ap': ['x'], 'vanilla': 'Progressive Strength Upgrade',
-                  'before': 'Item_Gauntlet_Silver'}
-        layout = tier_layout({'s': silver}, {'s': silver}, ['Progressive Strength Upgrade'] * 2)
-        self.assertEqual(layout['Progressive Strength Upgrade'], [1, 2])
-
     def test_options_and_yaml(self):
         values = rando_options.preset('everything')
         rando_options.validate(values, supported_only=True)
@@ -234,6 +219,14 @@ class Integration(unittest.TestCase):
                                             extra=self.extra)
             self.assertTrue(replay['beatable'])
             self.assertEqual(replay['unreachable'], [])
+            # The playthrough names each location as its spoiler row does (not an
+            # approximate entry's first AP candidate, such as one pot name for many pots).
+            rows = {row['id']: row['location'] for row in result['spoiler']}
+            shown = [text.rpartition(' : ')[0] for sphere in result['playthrough'] for text in sphere['items']]
+            self.assertTrue(shown)
+            self.assertTrue(set(shown) <= set(rows.values()), set(shown) - set(rows.values()))
+            approximate = {p['id'] for p in result['placements'] if p['kind'] != 'exact'}
+            self.assertTrue(any(rows[gid] in shown for gid in approximate))
             sources = Counter(p['source'] for p in result['placements'])
             for source in ('chest', 'skulltula', 'shop', 'freestanding', 'npc', 'pots'):
                 self.assertGreater(sources[source], 0, source)
@@ -248,14 +241,32 @@ class Integration(unittest.TestCase):
                     self.assertFalse(p['after'].startswith(('Item_', 'TBox_')), p)
                 if p['form'] == 'shop':
                     self.assertTrue(p['after'].startswith('Shop_'), p)
-            for family, actors in PROGRESSIVE.items():
-                spheres = {}
-                for p in result['placements']:
-                    if p['item'] == family:
-                        base = next(a for a in actors if p['after'] in (a, 'Obj_Rando_' + a, 'Shop_Rando_' + a))
-                        spheres[base] = p['sphere']
-                ordered = [spheres[a] for a in actors if a in spheres]
-                self.assertEqual(ordered, sorted(ordered), family)
+                if p['source'] == 'skulltula':   # only the token's behaviour saves the skulltula
+                    self.assertTrue(p['after'] == 'Obj_Token_Gold' or is_world_derived(p['after']), p)
+            # Every progressive copy, whatever its source, is its own token (next level in game).
+            from oot_rando.patching.progressive import token_family
+            tokens = result['progressive']['tokens']
+            self.assertEqual(replay['progressive'], result['progressive'])
+            for p in result['placements']:
+                canonical = canonical_of(p['after']) if is_derived(p['after']) else p['after']
+                if p['item'] in PROGRESSIVE:
+                    self.assertEqual((canonical, token_family(canonical)), (tokens[p['id']], p['item']), p)
+            self.assertEqual(len(set(tokens.values())), len(tokens))
+
+    def test_adult_map_sources_wait_for_adult_access(self):
+        from oot_rando.randomizer import full_randomizer
+        from oot_rando.game.remake_world import source_age
+        for seed in ('age1', 'age2'):
+            options, result = self.plan(NEW_SOURCES, seed)
+            c = full_randomizer.prepare(self.data, options, self.groups, self.enemies, seed, True, extra=self.extra)
+            _, _, spheres = c.sweep({p['id']: p['item'] for p in result['placements']})
+            # Time Travel is collected with the pedestal: the adult moves from the next sphere on.
+            adult_from = next(i for i, sphere in enumerate(spheres) if 'Master Sword Pedestal' in sphere) + 1
+            adult = [p for p in result['placements']
+                     if p['sphere'] is not None and source_age(c.matches[p['id']]['variants']) == 'adult']
+            self.assertTrue(adult)
+            for p in adult:
+                self.assertGreaterEqual(p['sphere'], adult_from, (seed, p['id'], p['item']))
 
     def test_shopsanity_keeps_logic_purchases(self):
         options, result = self.plan({'shopsanity': '4'}, 'shops')

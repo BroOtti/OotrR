@@ -169,8 +169,8 @@ ACTOR_ITEMS = {
 DUNGEON_ACTORS = {'Item_Dungeon_Map': 'Map', 'Item_Dungeon_Compass': 'Compass',
                   'Item_Dungeon_SmallKey': 'Small Key', 'Item_Dungeon_BossKey': 'Boss Key'}
 
-# Progressive families: remake actors in upgrade order. A copy whose source is
-# not shuffled keeps its native behaviour; see ``full_randomizer.family_tiers``.
+# Progressive families: remake actors in upgrade order. Every copy gives the level
+# above the one Link holds (``patching.progressive``).
 PROGRESSIVE = {
     'Progressive Hookshot': ['Item_Hookshot', 'Item_Longshot'],
     'Progressive Strength Upgrade': ['Item_Gauntlet_Goron', 'Item_Gauntlet_Silver', 'Item_Gauntlet_Gold'],
@@ -191,6 +191,11 @@ STATIC_TIER_SOURCES = {'GC Darunias Joy': ('Progressive Strength Upgrade', 0)}
 
 
 def actor_item(actor, folder):
+    if actor.startswith('Item_Prog_'):
+        from oot_rando.patching.progressive import token_family
+        family = token_family(actor)
+        if family:
+            return family
     if actor.startswith(('Item_KeyRing_', 'Item_BossKey_', 'Item_Map_', 'Item_Compass_')):
         from oot_rando.patching.key_adapter import key_actor_item
         item = key_actor_item(actor)
@@ -207,7 +212,7 @@ def actor_item(actor, folder):
     return ACTOR_ITEMS.get(actor, 'Remake: ' + actor)
 
 
-def item_actor(item, folder, tier=None):
+def item_actor(item, folder):
     """Remake actor for an AP item placed in ``folder`` (dungeon items stay generic)."""
     from oot_rando.patching.ap_item import ap_actor, is_ap_item
     if is_ap_item(item):
@@ -225,10 +230,8 @@ def item_actor(item, folder, tier=None):
     if item.startswith('Soul ('):
         from oot_rando.patching.soul_adapter import soul_actor
         return soul_actor(item)
-    if item in PROGRESSIVE and tier is not None:
-        return PROGRESSIVE[item][tier]
     if item in PROGRESSIVE:
-        return PROGRESSIVE[item][0]
+        return PROGRESSIVE[item][0]   # its first level (forms the family's copies may take)
     candidates = [a for a, i in ACTOR_ITEMS.items() if i == item]
     if not candidates:
         raise ValueError('No remake actor for: ' + item)
@@ -306,7 +309,7 @@ def scan_maps(nup, dictionaries, members, progress=None):
         for actor_index, actor in enumerate(root.get('Actors', [])):
             name = actor.get('Gyaml', '')
             if BLAST_WALL.match(name) and isinstance(actor.get('Translate'), list):
-                walls[folder].append((_map_age(path), actor['Translate']))
+                walls[folder].append((map_age(path), actor['Translate']))
             if type(actor.get('Hash')) is not int:
                 continue
             dynamic = actor.get('Dynamic') if isinstance(actor.get('Dynamic'), dict) else {}
@@ -325,12 +328,21 @@ def scan_maps(nup, dictionaries, members, progress=None):
     return maps, dict(groups), enemies
 
 
-def _map_age(path):
+def map_age(path):
+    """Age of a remake map file (None: a map both ages share)."""
     return 'child' if '_Child_' in path else 'adult' if '_Adult_' in path else None
 
 
+def source_age(variants):
+    """'child' or 'adult' when every copy of a source is on that age's maps, else None.
+
+    Event flows (NPC gifts) are not maps, even when named after a child or adult NPC."""
+    ages = {map_age(v['resource']) if v['resource'].startswith('Banc/') else None for v in variants}
+    return ages.pop() if len(ages) == 1 else None
+
+
 def _behind_wall(variant, walls):
-    position, age = variant.get('position'), _map_age(variant['resource'])
+    position, age = variant.get('position'), map_age(variant['resource'])
     if not isinstance(position, list) or len(position) != 3:
         return False
     return any((wall_age is None or age is None or wall_age == age) and len(point) == 3

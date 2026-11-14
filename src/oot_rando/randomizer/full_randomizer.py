@@ -1,4 +1,4 @@
-"""Complete glitchless randomizer: pool, assumed fill, verification, tiers.
+"""Complete glitchless randomizer: pool, assumed fill, verification, progressive tokens.
 
 Placement only; writing game files is done by :func:`build` callers. The RNG is
 SHA-256 counter based (rejection sampling), independent of Python's ``random``.
@@ -7,11 +7,11 @@ from collections import Counter, defaultdict
 import hashlib
 from types import SimpleNamespace
 
-from oot_rando.logic.rules import Logic, vanilla_placements
+from oot_rando.logic.rules import Logic, age_member, vanilla_placements
 from oot_rando.logic import rando_options
 from oot_rando.game.remake_world import (PROGRESSIVE, BASE_REQUIRED, STATIC_TIER_SOURCES, item_actor,
                           match_locations, coverage_summary, FOLDER_DUNGEON,
-                          ZONE_LABELS, TRACKED_TYPES, location_zone, zone_label)
+                          ZONE_LABELS, TRACKED_TYPES, location_zone, source_age, zone_label)
 from oot_rando.game.item_forms import can_take, form_actor
 from oot_rando.game.extra_sources import match_sources, area_locations
 from oot_rando.patching.soul_adapter import plan_souls, chest_requirements, soul_label
@@ -279,6 +279,7 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
         if gid not in selected_shops:
             del shuffled[gid]
     report(f'Shuffled chests: {len(shuffled)} groups ({sum(e["kind"] != "junk" for e in shuffled.values())} in logic).')
+    natives = native_sources(matches, shuffled, extra)
 
     # --- logic placements --------------------------------------------------
     base = vanilla_placements(data, logic)
@@ -313,7 +314,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
 
     # Area fallbacks only keep members the logic can reach with every item.
     everything = Counter({item: 9 for item in relevant})
-    _, reachable_all, _ = logic.sweep({l: None for l in logic.location_names()}, logic.new_state(everything))
+    everything_state, reachable_all, _ = logic.sweep({l: None for l in logic.location_names()},
+                                                     logic.new_state(everything))
     for gid, entry in matches.items():
         if entry['kind'] == 'area':
             members = [l for l in entry['ap'] if l in reachable_all]
@@ -340,6 +342,27 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
                 logic.virtual.pop(vname(gid), None)
                 if gid not in shuffled:
                     base.pop(vname(gid), None)
+    # A source found only on the child maps or only on the adult maps is collected at
+    # that age: every member that age can ever do must be done at that age.
+    for gid, entry in matches.items():
+        age, name = source_age(entry['variants']), vname(gid)
+        if age is None or name not in logic.virtual:
+            continue
+        members = [age_member(age, m) if not m.startswith('Souls|')
+                   and logic.accessible(everything_state, age_member(age, m)) else m
+                   for m in logic.virtual[name]]
+        if members != logic.virtual[name]:
+            logic.virtual[name] = members
+            continue
+        # Nothing of it is ever done at that age: no proof the age reaches it, filler only.
+        if entry['kind'] == 'area':
+            entry['ap'] = []
+        else:
+            for location in entry['ap']:
+                base[location] = None
+        entry.update(kind='junk', reason='no_reliable_ap_match')
+        logic.virtual.pop(name, None)
+        base.pop(name, None)
     # --- item pool ------------------------------------------------------------
     pool = []
     for gid, entry in shuffled.items():
@@ -369,7 +392,7 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     pool = apply_item_pool(pool, options['item_pool_value'], relevant,
                            never_extra=set(ring_keys.values()) | set(souls['items']))
     # Starting inventory: each copy found in the pool is taken out of it (OoTR /
-    # AP start_inventory_from_pool); progressive copies take the lowest tiers.
+    # AP start_inventory_from_pool); progressive copies take the lowest levels.
     start_items = []
     from_pool = Counter()
     for item, count in sorted(options['start_inventory_from_pool'].items()):
@@ -397,14 +420,7 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     if len(progression) > len(logic_locations):
         raise FillError(f'{len(progression)} progression items for {len(logic_locations)} chests in logic: '
                         'enable zone matching or reduce the options.')
-    start_family = Counter(i for i in start_items if i in PROGRESSIVE)
-    family_tiers = tier_layout(matches, shuffled, pool, start_family)
-    for family, count in start_family.items():
-        if family_tiers.get(family) is None:
-            raise FillError(f'Too many {family} (starting items included).')
-    start_actors = starting_actors(start_items, family_tiers)
-    # Tiers left for the copies placed in the world.
-    placed_tiers = {f: (None if t is None else t[start_family[f]:]) for f, t in family_tiers.items()}
+    start_actors = starting_actors(start_items)
     folder_dungeon = {gid: _dungeon_name(e['folder']) for gid, e in shuffled.items()}
 
     canonical_cache = {}
@@ -451,8 +467,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
         data=data, options=options, settings=settings, logic=logic, matches=matches, shuffled=shuffled,
         pool=pool, relevant=relevant, progression=progression, logic_locations=logic_locations,
         restricted_dungeon=restricted_dungeon, allowed=allowed, sweep=sweep, base=base, souls=souls,
-        unmatched_ap=unmatched_ap, family_tiers=family_tiers, starting=starting, report=report,
-        placed_tiers=placed_tiers, start_items=start_items, start_actors=start_actors,
+        unmatched_ap=unmatched_ap, natives=natives, starting=starting, report=report,
+        start_items=start_items, start_actors=start_actors,
         is_key=is_key, is_mapcompass=is_mapcompass)
 
 
@@ -466,14 +482,15 @@ def plan(data, options, groups, enemies, seed_key, open_forest=True, progress=No
     options, logic, matches, shuffled, pool = c.options, c.logic, c.matches, c.shuffled, c.pool
     relevant, progression, logic_locations = c.relevant, c.progression, c.logic_locations
     restricted_dungeon, allowed, sweep, base, souls = c.restricted_dungeon, c.allowed, c.sweep, c.base, c.souls
-    unmatched_ap, family_tiers, report = c.unmatched_ap, c.placed_tiers, c.report
+    unmatched_ap, report = c.unmatched_ap, c.report
     rng = DetRandom(hashlib.sha256((seed_key + '\0full-fill-v1').encode()).digest())
     if forced is not None:
         state, collected, spheres = sweep(forced)
         sphere_of = {loc[len('Remake|'):]: index for index, sphere in enumerate(spheres)
                      for loc in sphere if loc.startswith('Remake|')}
         return {'beatable': state.has('Triforce'), 'spheres': sphere_of, 'sphere_count': len(spheres),
-                'unreachable': sorted(g for g in logic_locations if vname(g) not in collected)}
+                'unreachable': sorted(g for g in logic_locations if vname(g) not in collected),
+                'progressive': progressive_plan(forced, c.natives)}
 
     last_error = 'no attempt'
     for attempt in range(MAX_ATTEMPTS):
@@ -520,48 +537,20 @@ def plan(data, options, groups, enemies, seed_key, open_forest=True, progress=No
         if len(free) != len(filler):
             raise FillError('Item and chest counts do not match.')
         placed.update(zip(free, filler))
-        # --- independent verification and progressive-order repair ----------
-        def verify(candidate):
-            state, collected, spheres = sweep(candidate)
-            if not state.has('Triforce'):
-                return None, 'victory not guaranteed'
-            if options['accessibility'] == 'full':
-                missing = [g for g in logic_locations if vname(g) not in collected]
-                if missing:
-                    return None, f'{len(missing)} unreachable chests: ' + ', '.join(
-                        str(shuffled[g]['ap'][:1]) for g in missing[:3])
-            return spheres, None
-
-        spheres, error = verify(placed)
-        if error:
-            last_error = error
+        # --- independent verification -----------------------------------------
+        state, collected, spheres = sweep(placed)
+        if not state.has('Triforce'):
+            last_error = 'victory not guaranteed'
             continue
-        tiers = None
-        for repair in range(400):
-            sphere_of = {loc: index for index, sphere in enumerate(spheres) for loc in sphere}
-            tiers, error, family = assign_tiers(placed, base, sphere_of, options, rng, logic, sweep, shuffled,
-                                                family_tiers)
-            if not error:
-                break
-            # Swap one copy of the offending family with another logic chest.
-            sources = [g for g, item in placed.items() if item == family]
-            source = rng.choice(sources)
-            targets = [g for g in logic_locations if placed[g] != family
-                       and allowed(placed[g], source) and allowed(family, g)]
-            if not targets:
-                break
-            target = rng.choice(targets)
-            candidate = dict(placed)
-            candidate[source], candidate[target] = placed[target], placed[source]
-            new_spheres, problem = verify(candidate)
-            if problem is None:
-                placed, spheres = candidate, new_spheres
-        if error:
-            last_error = error
-            continue
+        if options['accessibility'] == 'full':
+            missing = [g for g in logic_locations if vname(g) not in collected]
+            if missing:
+                last_error = f'{len(missing)} unreachable chests: ' + ', '.join(
+                    str(shuffled[g]['ap'][:1]) for g in missing[:3])
+                continue
         sphere_of = {loc: index for index, sphere in enumerate(spheres) for loc in sphere}
         report(f'Beatable seed found (attempt {attempt + 1}, {len(spheres)} spheres).')
-        result = _result(data, logic, options, matches, shuffled, placed, tiers, sphere_of, spheres, souls,
+        result = _result(data, logic, options, matches, shuffled, placed, c.natives, sphere_of, spheres, souls,
                          unmatched_ap, attempt + 1, base)
         result['starting'] = [{'item': item, 'actor': actor} for item, actor in zip(c.start_items, c.start_actors)]
         return result
@@ -606,11 +595,11 @@ def starting_unsupported(item):
     return item.startswith(STARTING_UNSUPPORTED)
 
 
-def starting_actors(starting, family_tiers):
+def starting_actors(starting):
     """Pouch actors of Archipelago starting items (AP names).
 
-    Copies of a progressive family take the lowest tiers of the family layout;
-    the placed copies take the next ones (see :func:`plan_assigned`).
+    Copies of a progressive family take its lowest levels; the copies found later
+    give the next ones (``patching.progressive``).
     """
     bad = sorted({item for item in starting if starting_unsupported(item)})
     if bad:
@@ -618,10 +607,9 @@ def starting_actors(starting, family_tiers):
     actors, taken = [], Counter()
     for item in starting:
         if item in PROGRESSIVE:
-            layout = (family_tiers or {}).get(item) or []
-            if taken[item] >= len(layout):
+            if taken[item] >= len(PROGRESSIVE[item]):
                 raise FillError(f'Too many {item} (starting items included).')
-            actors.append(PROGRESSIVE[item][layout[taken[item]]])
+            actors.append(PROGRESSIVE[item][taken[item]])
             taken[item] += 1
         else:
             actors.append(item_actor(item, None))
@@ -629,15 +617,13 @@ def starting_actors(starting, family_tiers):
 
 
 def plan_assigned(data, options, groups, enemies, seed_key, assigned, open_forest=True, progress=None,
-                  extra=None, labels=None, order=None, starting=()):
+                  extra=None, labels=None, starting=()):
     """Plan with placements chosen elsewhere (Archipelago): gid → item, every shuffled gid.
 
-    Items of other players are given as a stand-in by the caller. Progressive
-    tiers follow ``order`` (gid → sphere of the multiworld playthrough) when
-    given, else the local sweep (every copy of a family is local). Victory is
-    not required here: items may come from other worlds. ``starting``:
-    Archipelago starting items (AP names), collected from the start; progressive
-    copies among them take the lowest tiers.
+    Items of other players are given as a stand-in by the caller. Victory is not
+    required here: items may come from other worlds. ``starting``: Archipelago
+    starting items (AP names), collected from the start; progressive copies among
+    them take the lowest levels.
     """
     c = prepare(data, options, groups, enemies, seed_key, open_forest, progress, extra=extra)
     if set(assigned) != set(c.shuffled):
@@ -652,24 +638,12 @@ def plan_assigned(data, options, groups, enemies, seed_key, assigned, open_fores
     # Maps, compasses and keys of the "start with" / "removed" modes are written at
     # the start (key_adapter.start_dungeon_values), not handed over as pouch items.
     starting = [item for item in starting if not covered_by_start_values(item, c.options)]
-    start_actors = starting_actors(starting, c.family_tiers)
-    start_counts = Counter(starting)
-    state, collected, spheres = c.sweep(placed, start_counts)
+    start_actors = starting_actors(starting)
+    state, collected, spheres = c.sweep(placed, Counter(starting))
     sphere_of = {loc: index for index, sphere in enumerate(spheres) for loc in sphere}
-    tiers = {}
-    for family in PROGRESSIVE:
-        rank = ((lambda g: order.get(g) if order.get(g) is not None else 10 ** 6) if order is not None
-                else (lambda g: sphere_of.get(vname(g), 10 ** 6)))
-        sources = sorted((g for g, item in placed.items() if item == family), key=lambda g: (rank(g), g))
-        layout = c.family_tiers.get(family)
-        if not sources and (not start_counts[family] or is_dynamic_layout(layout)):
-            continue   # every copy handed over by the client (dynamic tiers) or none
-        if layout is None or len(layout) != len(sources) + start_counts[family]:
-            raise FillError(f'Unexpected number of {family}: every copy must stay in this world.')
-        tiers.update(zip(sources, layout[start_counts[family]:]))
     c.report(f'Archipelago placements applied ({len(spheres)} local spheres).')
-    result = _result(data, c.logic, c.options, c.matches, c.shuffled, placed, tiers, sphere_of, spheres, c.souls,
-                     c.unmatched_ap, 0, c.base)
+    result = _result(data, c.logic, c.options, c.matches, c.shuffled, placed, c.natives, sphere_of, spheres,
+                     c.souls, c.unmatched_ap, 0, c.base)
     for row in result['spoiler']:
         if labels and row['id'] in labels:
             row['item'] = labels[row['id']]
@@ -686,89 +660,66 @@ def _sweep_with_requirements(logic, placements, state):
     return logic.sweep(placements, state)
 
 
-def is_dynamic_layout(layout):
-    """Whether shuffled copies of a family take its tiers from the lowest one up (0, 1, 2...).
+# Native sources that keep a fixed level once unshuffled: chests and freestanding
+# items (their actor), and the gifts of STATIC_TIER_SOURCES. The other native sources
+# of a family already give the level above the one Link holds.
+FIXED_LEVEL_SOURCES = ('chest', 'freestanding')
 
-    Such a family is *dynamic* under Archipelago: the client hands every copy over
-    and the game gives the tier above the one Link holds (``patching.ap_mailbox``).
+
+def native_sources(matches, shuffled, extra=None):
+    """{gid: entry} of the unshuffled sources giving a fixed level of a progressive family.
+
+    They give a progressive token instead (:func:`progressive_plan`): found after a
+    shuffled copy, their own level could be lower than the one Link holds.
     """
-    return bool(layout) and list(layout) == list(range(len(layout)))
+    natives = {}
+    for gid, entry in matches.items():
+        tiers = PROGRESSIVE.get(entry['vanilla'])
+        if (gid not in shuffled and tiers and entry['before'] in tiers
+                and entry.get('source', 'chest') in FIXED_LEVEL_SOURCES and entry['variants']):
+            natives[gid] = entry
+    for location, (family, tier) in STATIC_TIER_SOURCES.items():
+        gid = 'npc#' + location
+        entry = (extra or {}).get(gid)
+        if gid in shuffled or entry is None or entry['kind'] == 'junk':
+            continue   # a junk gift has no reliable event to change: it stays native
+        if entry['vanilla'] != family or entry['before'] != PROGRESSIVE[family][tier]:
+            raise ValueError('Unexpected fixed-level gift: ' + location)
+        natives[gid] = entry
+    return natives
 
 
-def tier_layout(matches, shuffled, pool, starting=None):
-    """Tiers given by shuffled copies of each progressive family.
+def progressive_plan(placed, natives):
+    """Tokens of the progressive copies placed in this world and of the native fixed-level sources.
 
-    Unshuffled sources keep their native behaviour: a chest or a static gift
-    (Darunia) keeps its own tier, the other sources upgrade dynamically and are
-    counted as the highest tiers. Shuffled copies take the lowest free tiers.
+    ``{'tokens': {gid: token}, 'natives': [placement-like records]}``; each token gives,
+    once found, the level above the one Link holds (``patching.progressive``).
     """
-    layout = {}
-    covered = {l for gid in shuffled for l in matches[gid]['ap']}
-    for family, actors in PROGRESSIVE.items():
-        count = pool.count(family) + (starting or {}).get(family, 0)
-        if not count:
-            continue
-        static = set()
-        for gid, entry in matches.items():
-            if gid not in shuffled and entry['vanilla'] == family and entry['before'] in actors \
-                    and entry['source'] in ('chest', 'freestanding'):
-                static.add(actors.index(entry['before']))
-        for location, (tier_family, tier) in STATIC_TIER_SOURCES.items():
-            if tier_family == family and location not in covered:
-                static.add(tier)
-        free = [index for index in range(len(actors)) if index not in static]
-        layout[family] = free[:count] if len(free) >= count else None
-    return layout
+    from oot_rando.patching.progressive import assign_tokens
+    copies = [(gid, item) for gid, item in sorted(placed.items()) if item in PROGRESSIVE]
+    copies += [(gid, natives[gid]['vanilla']) for gid in sorted(natives)]
+    tokens = assign_tokens(copies)
+    records = []
+    for gid in sorted(natives):
+        entry = natives[gid]
+        form = entry.get('form', 'chest')
+        records.append({'id': gid, 'folder': entry['folder'], 'source': entry.get('source', 'chest'), 'form': form,
+                        'item': entry['vanilla'], 'before': entry['before'], 'token': tokens[gid],
+                        'after': form_actor(tokens[gid], form), 'patches': _patches(entry),
+                        'resources': sorted({v['resource'] for v in entry['variants']})})
+    return {'tokens': {gid: tokens[gid] for gid, _ in copies if gid in placed}, 'natives': records}
 
 
-def assign_tiers(placed, base, sphere_of, options, rng, logic, sweep, shuffled, family_tiers=None):
-    """Give each progressive copy its remake tier actor (lowest tier first)."""
-    tiers = {}
-    for family, actors in PROGRESSIVE.items():
-        sources = sorted((g for g, item in placed.items() if item == family),
-                         key=lambda g: (sphere_of.get(vname(g), 10 ** 6), rng.below(1 << 30)))
-        if not sources:
-            continue
-        shuffled_tiers = (family_tiers or {}).get(family)
-        if shuffled_tiers is None:
-            return None, f'unexpected number of {family}', family
-        if len(sources) != len(shuffled_tiers):
-            return None, f'unexpected number of {family}', family
-        if not options['progressive_order']:
-            sources = rng.shuffle(sources)
-        for gid, tier in zip(sources, shuffled_tiers):
-            tiers[gid] = tier
-        if not options['progressive_order']:
-            continue
-        spheres = [sphere_of.get(vname(g), 10 ** 6) for g in sources]
-        if len(set(spheres)) != len(spheres):
-            return None, f'two {family} levels in the same sphere', family
-        fixed = [loc for loc, item in base.items() if item == family and not loc.startswith('Remake|')]
-        fixed_spheres = [sphere_of[loc] for loc in fixed if loc in sphere_of]
-        low = min(shuffled_tiers)
-        dynamic = len(shuffled_tiers) < len(actors) and max(shuffled_tiers) < len(actors) - 1
-        if fixed_spheres:
-            if low > 0 and min(spheres) <= max(fixed_spheres):
-                return None, f'{family}: higher level reachable before the original item', family
-            if low == 0 and dynamic and family in BASE_REQUIRED and min(fixed_spheres) <= max(spheres):
-                return None, f'{family}: original upgrade reachable before the shuffled item', family
-        if options['progressive_strict'] and len(sources) > 1:
-            for index in range(1, len(sources)):
-                trimmed = {g: (None if g in sources[index - 1:] else item) for g, item in placed.items()}
-                _, collected, _ = sweep(trimmed)
-                if vname(sources[index]) in collected:
-                    return None, f'{family}: level {index + 1} reachable without level {index}', family
-    return tiers, None, None
-
-
-def _result(data, logic, options, matches, shuffled, placed, tiers, sphere_of, spheres, souls,
+def _result(data, logic, options, matches, shuffled, placed, natives, sphere_of, spheres, souls,
             unmatched_ap, attempts, base):
     placements, checks, spoiler = [], [], []
+    progressive = progressive_plan(placed, natives)
+    tokens = progressive['tokens']
     for gid in sorted(shuffled):
         entry = shuffled[gid]
         item = placed[gid]
         source = entry.get('source', 'chest')
-        canonical = item_actor(item, entry['folder'], tiers.get(gid))
+        canonical = tokens[gid] if gid in tokens else item_actor(item, entry['folder'])
         if (item.startswith('Boss Key (') and 'Ganons Castle' not in item
                 and options['shuffle_bosskeys'] in ('any_dungeon', 'keysanity')):
             from oot_rando.patching.key_adapter import boss_actor, item_folder
@@ -777,7 +728,7 @@ def _result(data, logic, options, matches, shuffled, placed, tiers, sphere_of, s
                 and options['shuffle_mapcompass'] in ('any_dungeon', 'overworld', 'keysanity')):
             from oot_rando.patching.key_adapter import specific_actor
             canonical = specific_actor(item)   # sets its own dungeon's map / compass anywhere
-        actor = form_actor(canonical, entry.get('form', 'chest'), airborne=source == 'skulltula')
+        actor = form_actor(canonical, entry.get('form', 'chest'), skulltula_drop=source == 'skulltula')
         label = SOURCE_LABELS.get(source, source)
         name = entry['ap'][0] if entry['kind'] == 'exact' else (
             f'{entry["folder"]} — {label} {str(entry["hash"])[-6:]}' if entry['hash'] else gid)
@@ -791,6 +742,7 @@ def _result(data, logic, options, matches, shuffled, placed, tiers, sphere_of, s
         spoiler.append({'id': gid, 'location': name, 'item': soul_label(item) if item.startswith('Soul (') else item,
                         'ap_item': item, 'actor': actor, 'before': entry['before'], 'source': source,
                         'sphere': sphere_of.get(vname(gid)), 'ap_locations': entry['ap']})
+    location_names = {row['id']: row['location'] for row in spoiler}
     playthrough = []
     for index, sphere in enumerate(spheres):
         names = []
@@ -799,11 +751,14 @@ def _result(data, logic, options, matches, shuffled, placed, tiers, sphere_of, s
                 gid = location[len('Remake|'):]
                 item = placed.get(gid)
                 if item and (item in logic.referenced | set(souls['items']) or item in logic.bundles):
-                    names.append(f'{shuffled[gid]["ap"][0] if shuffled[gid]["ap"] else gid} : {item}')
+                    # Same name as the spoiler row: an approximate entry's AP names are
+                    # only candidates (one pot name could stand for many pots).
+                    names.append(f'{location_names.get(gid, gid)} : {item}')
         if names:
             playthrough.append({'sphere': index, 'items': sorted(names)})
     checks = tracker_checks(data, matches, shuffled)
     return {'placements': placements, 'checks': checks, 'spoiler': spoiler, 'playthrough': playthrough,
+            'progressive': progressive,
             'souls': souls, 'matches': matches, 'unmatched_ap': unmatched_ap, 'attempts': attempts,
             'coverage': dict(coverage_summary(matches), shuffled=len(shuffled),
                              in_logic=sum(1 for g in shuffled if shuffled[g]['kind'] != 'junk'),
@@ -843,8 +798,13 @@ def tracker_checks(data, matches, shuffled):
             covered.update(entry['ap'])
         label = SOURCE_LABELS.get(source, source)
         zone = _entry_zone(data, entry, gid)
-        name = entry['ap'][0] if entry['kind'] == 'exact' and entry['ap'] else (
-            f'{zone_label(zone)} {label} {str(entry["hash"])[-6:]}' if entry.get('hash') else gid)
+        if entry['kind'] == 'exact' and entry['ap']:
+            name = entry['ap'][0]
+        else:
+            name = f'{zone_label(zone)} {label} {str(entry["hash"])[-6:]}' if entry.get('hash') else gid
+            age = source_age(entry['variants'])
+            if age:
+                name += f' ({age})'   # only on that age's maps
         checks.append({'id': gid, 'zone': zone, 'region': zone_label(zone),
                        'category': 'full_' + ('chests' if source == 'chest' else source), 'name': name,
                        'randomized': gid in shuffled, 'repeatable': source in REPEATABLE,
