@@ -1,6 +1,6 @@
 # OoT Randomizer — Hookshot and emulator
 
-[![Latest release](https://img.shields.io/github/v/release/Mozencaz/OotrR?label=download)](https://github.com/Mozencaz/OotrR/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Mozencaz/OotrR?label=download)](https://github.com/Mozencaz/OotrR/releases/latest) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/dnqs4eRZC)
 
 **[Download the latest release](https://github.com/Mozencaz/OotrR/releases/latest)**
 (Windows `.zip` or Linux `.tar.gz`, portable, no installation).
