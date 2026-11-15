@@ -16,7 +16,7 @@ and logic are checked statically (`python -m oot_rando verify`); items marked
 | **NPC gifts and minigames** (`shuffle_npc_gifts`) | 29 gifts (`extra_sources.NPC_GIFTS`) | item parameter of the event (`ActorName`, `ReveiveItem`…) via `evfl` |
 | **Bosses and dungeon rewards** (`shuffle_boss_rewards`) | 3 stones, 6 medallions (Rauru's included), 8 boss heart containers | hand-over event (`GetPouchContentByActorName`); placed heart container `Gyaml` |
 | **Great Fairies** (`shuffle_great_fairies`) | Din, Farore, Nayru, magic, double magic, double defense | `ActorName` of the fairy cutscene |
-| **Quest rewards** (`shuffle_quest_rewards`) | Saria's ocarina, Ocarina of Time, Zelda's Letter, Light Arrows, Biggoron Sword | `ActorName` of the cutscene; ocarinas: also the silent pouch add |
+| **Quest rewards** (`shuffle_quest_rewards`) | Saria's ocarina, Ocarina of Time, Zelda's Letter (only with a shuffled child trade quest: it takes the Weird Egg's slot), Light Arrows, Biggoron Sword | `ActorName` of the cutscene; ocarinas: also the silent pouch add |
 | **Pots, crates, beehives, bushes, rocks** | explicit-drop objects (rupee, heart); empty rocks (≈ 195, no drop table) | existing `Drop__DropActor`, or added on rocks whose pack declares it as an instance parameter |
 | **Trees** (`shuffle_trees`) | 52 `Obj_Tree_*` (Hyrule Field 39, Kokiri Forest 8, castle, Kakariko, market); trees with an explicit `None` drop table and Colossus palms stay vanilla | `Drop__DropActor` added (instance parameter of the tree pack); falls when Link rolls into the tree |
 | **Business Scrubs** (`shuffle_scrubs`) | single-sale remake scrubs only: stick upgrade (`LW Deku Scrub Near Bridge`), nut upgrade (`LW Deku Scrub Grotto Front`), field and crater heart pieces | `ActorName` and `Price` of each `SimpleShopSub_Scrub_Business_OneTime` call in `Enemy_Scrub_Business_Common` |
@@ -109,6 +109,20 @@ token is therefore built on the token: `<native pickup>_GS` (e.g. `Obj_Rupee_Red
 names of REALAZK's token kits, at most 25 characters) or `Obj_Rando_<item>`. Their
 pouch sets `PlayGetEventManyTimes` and `IsPlayGetEventPouchMax`, so the get event
 plays on every pickup, even at full capacity. The tracker reads the same row.
+
+Pots, bushes, rocks, crates, beehives and trees: their first-collection pickup
+(`Obj_RandoOnce_*`) is built on a native falling drop (`Obj_DekuNut`), not
+on the token. The token's AI keeps it standing where it spawns
+(`ExecuteKeepStandingPosture`), so an item shaken from a tree or out of a pot thrown at
+a wall hung in the air. Native drops share `Obj_Item_Base`'s `DropItem` AI
+(`ExecuteDropBound`: fall, bounce, land), physics, blackboard and death.
+The source itself keeps its map entry, but for its drop: no `Presence` and no vanilla
+copy. The game remembers a broken pot, rock, crate, bush or beehive by its hash (a
+`Bool64bitKey`) until the scene changes; a copy under another hash, or a source under a
+`Presence` condition, came back while the area stayed loaded. Each pickup runs its own
+clone of the `DropItem` AI: when it spawns, it reads its check flag and deletes itself
+once the check is collected. A collected source therefore drops nothing afterwards
+(not its vanilla rupee or heart).
 
 ## Dungeon-specific keys (`key_adapter.py`)
 
