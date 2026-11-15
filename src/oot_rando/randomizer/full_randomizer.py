@@ -467,7 +467,7 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
             return False
         if is_song_actor(actor) and set(shuffled[gid].get('ap', ())) & set(POSE_AFTER_CUTSCENE):
             return False   # given back in game with a pose (qol_patches.give_gift_after), not text-only
-        return can_take(actor, shuffled[gid]['form'], shuffled[gid].get('ap', ()))
+        return can_take(actor, shuffled[gid]['form'], shuffled[gid].get('ap', ()), shuffled[gid].get('actor', ''))
 
     # OoTR/AP vanilla-key compensation: with vanilla Fire Temple keys the logic
     # starts with one extra key (the vanilla layout expects the hammer door order).

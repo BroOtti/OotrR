@@ -494,6 +494,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
         opening = 'Event/EventFlow/OpeningEvent.bfevfl.zs'
         extra_raw[opening], seed_markers = add_collection_markers(
             decompress(read(opening), d), {'Event3': marker_name})
+        # Every seed: "Randomizer" badge under the title screen logo.
+        from oot_rando.patching.title_badge import TITLE_BNTX, add_title_badge
+        extra_raw[TITLE_BNTX], title_badge = add_title_badge(decompress(read(TITLE_BNTX), d))
         goal_markers = []
         if goal_name:
             # Archipelago goal: set once Ganon's defeat completes the native challenge,
@@ -521,7 +524,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
                 for path in event_paths(members, big_poes.FLOW):
                     extra_raw[path] = big_poes.patch_flow(
                         extra_raw[path] if path in extra_raw else decompress(read(path), d), poe_count)
-        skips = {}
+        skips = {'title_badge': title_badge}
         if settings.full is not None:
             skips['ocarina_guide'] = ocarina_guide
             skips['dc_boulder_bombs'] = dc_boulder
