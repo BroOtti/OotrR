@@ -102,6 +102,15 @@ class LogicTests(unittest.TestCase):
         shop = self.exit_rule('Market Back Alley', 'Market Bombchu Shop')
         self.assertFalse(shop(Day, {}, 'child'))
 
+    def test_water_temple_gate_needs_iron_boots_or_thawed_king(self):
+        class Day:
+            tod = {'adult': True, 'child': True}
+        gate = self.exit_rule('Lake Hylia', 'Water Temple Lobby')
+        dive = {'Progressive Hookshot': 2, 'Progressive Scale': 2}
+        self.assertFalse(gate(Day, dive, 'adult'))
+        self.assertTrue(gate(Day, dict(dive, **{'King Zora Thawed': 1}), 'adult'))
+        self.assertTrue(gate(Day, {'Progressive Hookshot': 1, 'Iron Boots': 1}, 'adult'))
+
     def test_unknown_remake_exit_is_refused(self):
         from oot_rando.logic import world
         world.REMAKE_EXIT_RULES['Nowhere -> Elsewhere'] = 'True'
