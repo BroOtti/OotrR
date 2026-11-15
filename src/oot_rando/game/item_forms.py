@@ -99,11 +99,13 @@ OCARINAS = ('Item_Ocarina_Fairy', 'Item_Ocarina_Time')
 OCARINA_SITES = ('LW Gift from Saria', 'HF Ocarina of Time Item')
 
 
-# Native dungeon items credited only by the big chest sequence (Dm_SY_Treasurebox:
-# EventGetDungeonBossKey / Map / Compass). The small chest sequence only knows the
-# small key, and nothing else credits them to the dungeon: anywhere else they would
-# be shown and lost. Every remake map, compass and boss key stands in a big chest.
-BIG_CHEST_ONLY = ('Item_Dungeon_BossKey', 'Item_Dungeon_Map', 'Item_Dungeon_Compass')
+# The native boss key is credited only by the big chest sequence (Dm_SY_Treasurebox:
+# EventGetDungeonBossKey, like the map and compass). The small chest sequence only
+# knows the small key: anywhere else the boss key would be shown and lost, and the
+# boss door would stay shut. Every remake boss key stands in a big chest. Maps and
+# compasses have the same limit but are never needed to finish: they stay free, as
+# keeping them in big chests too leaves too few reachable chests early in a dungeon.
+BIG_CHEST_ONLY = ('Item_Dungeon_BossKey',)
 BIG_CHEST_ACTORS = ('Obj_TBox_A_02', 'Obj_TBox_A_03')
 
 

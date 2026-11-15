@@ -36,12 +36,12 @@ class Units(unittest.TestCase):
         self.assertFalse(can_take('Item_Soul_Keese', 'shop'))   # purchase may skip the soul get event
         self.assertFalse(can_take('Item_Soul_Keese', 'event'))
         self.assertTrue(can_take('Item_Soul_Keese', 'chest'))
-        # Map, compass, boss key: only the big chest sequence credits them.
-        for item in ('Item_Dungeon_BossKey', 'Item_Dungeon_Map', 'Item_Dungeon_Compass'):
-            self.assertTrue(can_take(item, 'chest', actor='Obj_TBox_A_02_NoBake'))
-            self.assertTrue(can_take(item, 'chest', actor='Obj_TBox_A_03'))
-            self.assertFalse(can_take(item, 'chest', actor='Obj_TBox_A_01'))
-            self.assertFalse(can_take(item, 'world'))
+        # The native boss key: only the big chest sequence credits it.
+        self.assertTrue(can_take('Item_Dungeon_BossKey', 'chest', actor='Obj_TBox_A_02_NoBake'))
+        self.assertTrue(can_take('Item_Dungeon_BossKey', 'chest', actor='Obj_TBox_A_03'))
+        self.assertFalse(can_take('Item_Dungeon_BossKey', 'chest', actor='Obj_TBox_A_01'))
+        self.assertFalse(can_take('Item_Dungeon_BossKey', 'world'))
+        self.assertTrue(can_take('Item_Dungeon_Map', 'chest', actor='Obj_TBox_A_01'))   # never needed
         self.assertTrue(can_take('Item_Dungeon_SmallKey', 'chest', actor='Obj_TBox_A_01'))
         self.assertEqual(form_actor('Item_Soul_Keese', 'world'), 'Obj_Rando_Item_Soul_Keese')
         self.assertTrue(can_take('Item_Longshot', 'world'))
