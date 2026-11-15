@@ -9,7 +9,8 @@ import copy
 import re
 from collections import defaultdict
 
-from oot_rando.logic.world import REMAKE_LOCATION_REGIONS, REMAKE_LOCATION_RULES, World  # noqa: F401
+from oot_rando.logic.world import (REMAKE_EXIT_RULES, REMAKE_LOCATION_REGIONS,  # noqa: F401
+                                   REMAKE_LOCATION_RULES, World)
 
 TRIALS = ('Forest', 'Fire', 'Water', 'Shadow', 'Spirit', 'Light')
 STONES = ('Kokiri Emerald', 'Goron Ruby', 'Zora Sapphire')
@@ -21,6 +22,7 @@ MEDALLIONS = ('Forest Medallion', 'Fire Medallion', 'Water Medallion', 'Shadow M
 AP_VANILLA_SETTINGS = {
     'logic_rules': 'glitchless', 'open_forest': 'closed', 'open_kakariko': 'closed',
     'open_door_of_time': False, 'zora_fountain': 'closed', 'gerudo_fortress': 'normal',
+    'open_gerudo_valley_bridge': False,
     'bridge': 'vanilla', 'bridge_stones': 3, 'bridge_medallions': 6, 'bridge_rewards': 9,
     'bridge_tokens': 100, 'bridge_hearts': 20, 'trials': 6,
     'lacs_condition': 'vanilla', 'lacs_stones': 3, 'lacs_medallions': 6, 'lacs_rewards': 9,
@@ -166,10 +168,15 @@ class Logic:
         names = {}
         for item in data.item_table:
             names[escape_name(item)] = item
+        remake = getattr(data, 'remake', None) or {}
+        # Remake-only events ({region: {event: rule}}).
+        self.remake_events = remake.get('events') or {}
         events = set()
         for region in data.regions:
             for event in region.get('events', {}):
                 events.add(event)
+        for region_events in self.remake_events.values():
+            events.update(region_events)
         for event in events:
             names.setdefault(escape_name(event), event)
         self.names = names
@@ -205,6 +212,7 @@ class Logic:
             self._region = name
             compiled = {'exits': [], 'locations': [], 'events': []}
             for target, rule in region.get('exits', {}).items():
+                rule = REMAKE_EXIT_RULES.get(f'{name} -> {target}', rule)
                 requirement = extra_exit_requirements.get((name, target))
                 compiled['exits'].append((target, self.compile(rule, requirement)))
             own = {l: r for l, r in region.get('locations', {}).items()
@@ -223,11 +231,14 @@ class Logic:
                 compiled['locations'].append((location, compiled_rule))
                 self.location_region.setdefault(location, name)
                 self.location_rules.setdefault(location, []).append((name, compiled_rule))
-            for event, rule in region.get('events', {}).items():
+            for event, rule in dict(region.get('events', {}), **self.remake_events.get(name, {})).items():
                 compiled['events'].append((event, self.compile(rule)))
             self.regions[name] = compiled
         self._region = None
         missing = {t for r in self.regions.values() for t, _ in r['exits']} - set(self.regions)
+        missing |= set(self.remake_events) - set(self.regions)
+        known_exits = {f"{r['region_name']} -> {t}" for r in data.regions for t in r.get('exits', {})}
+        missing |= set(REMAKE_EXIT_RULES) - known_exits
         if missing:
             raise ValueError('Unknown AP regions: ' + ', '.join(sorted(missing)))
 

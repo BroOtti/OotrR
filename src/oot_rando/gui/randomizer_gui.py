@@ -67,7 +67,7 @@ OPTION_COPY = {
     'shuffle_npc_gifts': ('Character gifts and minigames', 'Shuffles the supported rewards of characters and minigames.'),
     'shuffle_boss_rewards': ('Boss and dungeon rewards', 'Shuffles spiritual stones, medallions and heart containers. The game scenes are kept.'),
     'shuffle_great_fairies': ('Great fairy rewards', 'Shuffles spells, magic and defense upgrades.'),
-    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter, the Light Arrows and the Biggoron Sword.'),
+    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows and the Biggoron Sword.'),
     'shuffle_pots': ('Pots', 'The first reward is shuffled. Once picked up, the pot goes back to its vanilla loot.'),
     'shuffle_crates': ('Crates', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
     'shuffle_beehives': ('Beehives', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
@@ -157,6 +157,11 @@ class Application:
         self.tracker_search, self.save_path = tk.StringVar(), tk.StringVar()
         self.auto_save = tk.BooleanVar(value=True)
         self.app_state = self.read_app_state()
+        # Remembered between app starts (it was off again at every start: 15/11 report, issue #39).
+        self.options['skulltulas_always_present'].set(self.app_state.get('skulltulas_always_present') is True)
+        self.options['skulltulas_always_present'].trace_add(
+            'write', lambda *args: self.write_app_state(
+                skulltulas_always_present=self.options['skulltulas_always_present'].get()))
         # Game file and mods folder: chosen once by the player, then remembered.
         self.nup.set(self.app_state.get('game_file') or '')
         self.mods.set(self.app_state.get('mods_dir') or default_mods_dir())

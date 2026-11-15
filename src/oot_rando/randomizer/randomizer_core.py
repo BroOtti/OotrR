@@ -456,6 +456,32 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             # through its cutscene whatever it contains.
             extra_raw[SWORD_CHEST_FLOW], sword_chest = skip_kokiri_sword_cutscene(
                 extra_raw.get(SWORD_CHEST_FLOW) or decompress(read(SWORD_CHEST_FLOW), d))
+            # Story locks broken by items found in any order (patching/story_fixes.py).
+            from oot_rando.patching import story_fixes
+            story = {}
+            for path, key, fix in story_fixes.FLOW_FIXES:
+                extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
+            temple = raw_maps.get(story_fixes.TEMPLE_MAP) or decompress(read(story_fixes.TEMPLE_MAP), d)
+            sheik_edits = story_fixes.sheik_presence_edits(Byml(temple).root)
+            raw_maps[story_fixes.TEMPLE_MAP] = patch_strings(temple, sheik_edits)
+            story['sheik'] = {'map': story_fixes.TEMPLE_MAP, 'actor': sheik_edits[0]['path'][1],
+                              'presence': story_fixes.SHEIK_PRESENCE}
+            # Zelda's escape on the three stones, checked at every item get.
+            extra_raw[ACTION_GUIDE_FLOW], story['zelda_escape_item_get'] = story_fixes.zelda_escape_on_item_get(
+                extra_raw[ACTION_GUIDE_FLOW])
+            # The clock runs before Zelda (Impa's send-off flag set at the start).
+            story['clock'] = story_fixes.CLOCK_FLAG
+            # Zones open from the start, kept open (patching/world_openings.py).
+            from oot_rando.patching.world_openings import OPENINGS, apply_openings
+            options = full.get('options') or {}
+            if any(options.get(option) == value for option, value, _ in OPENINGS):
+                from oot_rando.patching.quest_guard import CHALLENGES
+                extra_raw[GAMEDATA], opened_flows, story['openings'] = apply_openings(
+                    options, lambda path: extra_raw.get(path) or decompress(read(path), d),
+                    extra_raw.get(GAMEDATA) or decompress(read(GAMEDATA), d),
+                    decompress(read(CHALLENGES), d),
+                    lambda path: extra_raw.get(path) or read(path))
+                extra_raw.update(opened_flows)
         gamedata_source = extra_raw.get(GAMEDATA)
         if gamedata_source is None:
             gamedata_source = decompress(read(GAMEDATA), d)
@@ -468,6 +494,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
         opening = 'Event/EventFlow/OpeningEvent.bfevfl.zs'
         extra_raw[opening], seed_markers = add_collection_markers(
             decompress(read(opening), d), {'Event3': marker_name})
+        # Every seed: "Randomizer" badge under the title screen logo.
+        from oot_rando.patching.title_badge import TITLE_BNTX, add_title_badge
+        extra_raw[TITLE_BNTX], title_badge = add_title_badge(decompress(read(TITLE_BNTX), d))
         goal_markers = []
         if goal_name:
             # Archipelago goal: set once Ganon's defeat completes the native challenge,
@@ -483,7 +512,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             # Maps/compasses "start with", keys "removed": dungeon data written at the start.
             from oot_rando.patching.event_patch import add_start_values
             from oot_rando.patching.key_adapter import start_dungeon_values, check_start_values
-            start_values = start_dungeon_values(settings.full)
+            start_values = dict(start_dungeon_values(settings.full), **story_fixes.story_start_values())
             if start_values:
                 check_start_values(extra_raw[GAMEDATA], start_values)
                 extra_raw[opening] = add_start_values(extra_raw[opening], 'RandoCollected_Event3', start_values)
@@ -495,7 +524,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
                 for path in event_paths(members, big_poes.FLOW):
                     extra_raw[path] = big_poes.patch_flow(
                         extra_raw[path] if path in extra_raw else decompress(read(path), d), poe_count)
-        skips = {}
+        skips = {'title_badge': title_badge}
         if settings.full is not None:
             skips['ocarina_guide'] = ocarina_guide
             skips['dc_boulder_bombs'] = dc_boulder
@@ -505,6 +534,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             if full['progressive']['actors']:
                 skips['progressive'] = {'converter': progressive_converter, 'hooks': full['progressive']['hooks']}
             skips['sword_chest'] = sword_chest
+            skips['story_fixes'] = story
             if full.get('gift_get'):
                 skips['gift_get'] = full['gift_get']
             if full.get('song_flows'):
