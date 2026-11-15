@@ -460,7 +460,13 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             story = {}
             for path, key, fix in story_fixes.FLOW_FIXES:
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
-            temple = raw_maps.get(story_fixes.TEMPLE_MAP) or decompress(read(story_fixes.TEMPLE_MAP), d)
+            # First arrivals (area presentations) never move a quest back.
+            from oot_rando.patching.quest_guard import CHALLENGES as CHALLENGE_TABLE
+            arrival_flows, story['first_arrivals'] = story_fixes.keep_first_arrivals_forward(
+                lambda path: extra_raw.get(path) or decompress(read(path), d),
+                decompress(read(CHALLENGE_TABLE), d))
+            extra_raw.update(arrival_flows)
+            temple =raw_maps.get(story_fixes.TEMPLE_MAP) or decompress(read(story_fixes.TEMPLE_MAP), d)
             sheik_edits = story_fixes.sheik_presence_edits(Byml(temple).root)
             raw_maps[story_fixes.TEMPLE_MAP] = patch_strings(temple, sheik_edits)
             story['sheik'] = {'map': story_fixes.TEMPLE_MAP, 'actor': sheik_edits[0]['path'][1],

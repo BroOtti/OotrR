@@ -284,6 +284,7 @@ SHEIK_PRESENCE_ENTRY = {'FlagName': SHEIK_PRESENCE, 'IsCheckLazy': False, 'IsNeg
 DOOR_FLOW = 'Event/EventFlow/DoorOfTime.bfevfl.zs'
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
 STONES = ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water')
+STONE_FLAG_PREFIX = 'IsGet.'   # saved when the stone is obtained, however it is given
 DOOR_STARTED = 'DoorOfTime_IsAfter_Step01_Exp'
 DOOR_BEFORE_ESCAPE = 'DoorOfTime_IsAfter_Step2_2_Exp'
 BRIDGE_CLOSED = 'IsHyruleFieldBridgeClose'
@@ -302,8 +303,11 @@ def _stone_check(flow, prefix, following):
     step.data.nxt, bridge.data.nxt = make_index(bridge), make_index(count)
     check = step
     for index, stone in reversed(list(enumerate(STONES))):
-        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsExistInPouch', {'Actor': stone, 'Num': 1},
-                            check, following, actor='PouchSystemActor')
+        # The saved ``IsGet.<actor>`` flag: the pouch only answers to pouch names, never
+        # to the actor name (EventQueryIsExistInPouch on Item_Stone_* was always false,
+        # so Zelda still waited for the bosses; 15/11 report).
+        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsGameDataBool',
+                            {'GameDataName': STONE_FLAG_PREFIX + stone, 'Index': -1}, check, following)
     before = flow.switch(prefix + 'BeforeEscape', 'EventQueryIsGameDataBoolExp',
                          {'GameDataName': DOOR_BEFORE_ESCAPE}, following, check)
     return flow.switch(prefix + 'Started', 'EventQueryIsGameDataBoolExp',
@@ -373,6 +377,72 @@ CLOCK_FLAG = 'HavePlayedEvent.Dm_HrlField_0020'
 def story_start_values():
     """GameData values written at the end of the new-game opening (full mode)."""
     return {CLOCK_FLAG: True}
+
+
+# --- First arrivals never move a quest back --------------------------------------
+# An entrance plays its area presentation the first time it is used
+# (``FieldAndDungeonEntranceEventRequestActor``: ``InitEventName`` while ``InitEventFlag``
+# is false), and some of these scenes request a quest step without checking where the
+# quest stands. Vanilla always uses that entrance first; a seed can reach the area
+# another way, so the scene comes later and pulls the quest back (Discord 15/11: King
+# Zora back in front of the fountain). Scan of the entrances of 1.1.1 (the others check
+# the quest before their request):
+#
+# * Zora River -> Zora's Domain (``Goto_ZoraDomain``, ``HavePlayedEvent.Dm_Zora_0000``):
+#   ``Get_StoneOfWater`` to ``Step03`` / ``Step03_Impa``. Zora's Domain reached first
+#   from Lake Hylia, Ruto's Letter delivered (``Step07``): King Zora went back to his
+#   throne in front of the fountain, the letter already spent.
+# * Kakariko -> Death Mountain Trail (``DeathMountainTrail_Arrive``,
+#   ``Get_StoneOfFire_DeathMtTrailIn``): ``Get_StoneOfFire`` to ``DeathMtTrailNpc``, even
+#   once complete (``IsIgnoreCompletedChallenge`` false). The trail reached first from
+#   Goron City (Lost Woods shortcut) or the crater.
+# * Haunted Wasteland -> Desert Colossus (``FromWasteland_ArriveColossus``):
+#   ``SageOfSpirit`` to ``Step04``. The Colossus reached first with the Requiem.
+# * Hyrule Field / castle -> Market (``Goto_HyruleCastle_EntryMarket``):
+#   ``Goto_HyruleCastle`` to ``Step02_01``, even once complete.
+#
+# Each request is now skipped once the quest is past its step or complete (one guard
+# per expression, :func:`oot_rando.patching.quest_guard.guard_requests`). The scenes
+# themselves still play. Not validated in game.
+ARRIVE_FLOW = 'Event/EventFlow/Dm_SY_BancChangeArrive.bfevfl.zs'
+CASTLE_FLOW = 'Event/EventFlow/Goto_HyruleCastle.bfevfl.zs'
+FIRST_ARRIVAL_REQUESTS = {
+    ARRIVE_FLOW: (('Get_StoneOfWater', ('Step03', 'Step03_Impa')), ('SageOfSpirit', ('Step04',))),
+    FIRE_STONE_FLOW: (('Get_StoneOfFire', ('DeathMtTrailNpc',)),),
+    CASTLE_FLOW: (('Goto_HyruleCastle', ('Step02_01',)),),
+}
+FORWARD_PREFIX = 'RandoArrivalForward'
+
+
+def first_arrival_forward(path, raw, steps):
+    """``raw`` (the flow at ``path``) where its first-arrival requests never move a quest back.
+
+    ``steps``: the challenge table (:func:`oot_rando.patching.quest_guard.challenge_steps`).
+    Returns (bytes, [(event, step, expression)])."""
+    from oot_rando.patching import quest_guard
+    guarded, index = [], 0
+    for challenge, wanted in FIRST_ARRIVAL_REQUESTS[path]:
+        guards = [(step, quest_guard.after_expression(challenge, step)) for step in wanted]
+        guards.append((None, f'{challenge}_IsCompleted_Exp'))
+        for step, expression in guards:
+            raw, report = quest_guard.guard_requests(raw, challenge, steps, wanted if step is None else (step,),
+                                                     expression, prefix=f'{FORWARD_PREFIX}{index}_')
+            index += 1
+            if not report['guarded']:
+                raise ValueError(f'First arrival guard: no {challenge} request to guard in {path}')
+            guarded += [(event, name, expression) for event, name, _ in report['guarded']]
+    return raw, guarded
+
+
+def keep_first_arrivals_forward(read_flow, challenges_raw):
+    """Every flow of :data:`FIRST_ARRIVAL_REQUESTS`. ``read_flow(path)``: its current bytes.
+    Returns ({path: bytes}, {path: guarded})."""
+    from oot_rando.patching import quest_guard
+    steps = quest_guard.challenge_steps(challenges_raw)
+    files, report = {}, {}
+    for path in FIRST_ARRIVAL_REQUESTS:
+        files[path], report[path] = first_arrival_forward(path, read_flow(path), steps)
+    return files, report
 
 
 FLOW_FIXES = (

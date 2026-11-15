@@ -492,5 +492,8 @@ def collect(nup, dictionaries, members, maps):
 def scan_world(nup, dictionaries, members, progress=None):
     """Maps, chest groups, enemies and the other reward sources."""
     from oot_rando.game.remake_world import scan_maps
+    from oot_rando.game.check_names import label_entries
     maps, groups, enemies = scan_maps(nup, dictionaries, members, progress)
-    return maps, groups, enemies, collect(nup, dictionaries, members, maps)
+    extra = collect(nup, dictionaries, members, maps)
+    label_entries(maps, groups, extra)   # readable check names (game/check_names.py)
+    return maps, groups, enemies, extra

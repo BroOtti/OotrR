@@ -270,6 +270,12 @@ def verify(nup_path, seed_dir):
                 if path == fixed_path and key in (skips.get('story_fixes') or {}):
                     original = fix(original)[0]
                     report['story_fixes'] = report.get('story_fixes', 0) + 1
+            if (path in story_fixes.FIRST_ARRIVAL_REQUESTS
+                    and path in ((skips.get('story_fixes') or {}).get('first_arrivals') or {})):
+                from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
+                original = story_fixes.first_arrival_forward(
+                    path, original, challenge_steps(decompress(nup.read(members[CHALLENGES]), d)))[0]
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             gifts = skips.get('gift_get', {})
             if path in gifts:
                 # Cutscene whose own add is bypassed: never reached any more.
@@ -425,8 +431,9 @@ def verify(nup_path, seed_dir):
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')
-                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != {
-                        'FlagName': flag, 'IsNegation': False, 'IsCheckLazy': False}:
+                from oot_rando.patching.soul_adapter import soul_presence
+                key = flag[len(FLAG_PREFIX + 'Item_Soul_'):]
+                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != soul_presence(flag, key):
                     raise ValueError('Unexpected presence: ' + path)
                 soul_actors.add(flag[len(FLAG_PREFIX):])
                 a2['Presence'] = b2['Presence']

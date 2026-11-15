@@ -117,7 +117,9 @@ class GameFlows(unittest.TestCase):
         self.assertEqual(before.params.data, {'GameDataName': s.DOOR_BEFORE_ESCAPE})
         check, held = before.cases[1].v, []                    # ...and Step03 not reached
         while check.name.startswith('RandoDoorStonesStone'):
-            held.append(check.data.params.data['Actor'])
+            params = check.data.params.data            # the saved flag, not the pouch
+            self.assertEqual(params['Index'], -1)
+            held.append(params['GameDataName'].removeprefix(s.STONE_FLAG_PREFIX))
             check = check.data.cases[0].v
         self.assertEqual(held, list(s.STONES))
         self.assertEqual(check.data.params.data['StepName'], 'Step03')
@@ -140,12 +142,58 @@ class GameFlows(unittest.TestCase):
         self.assertEqual(events['Event62'].data.nxt.v.name, 'RandoSendOffStonesStarted')
         self.check_kept(source, raw)
 
+    def steps(self):
+        from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
+        return challenge_steps(self.read(CHALLENGES))
+
+    def test_zora_domain_arrival_keeps_king_zora_moved(self):
+        # Discord 15/11: Zora's Domain reached from Lake Hylia, the letter delivered,
+        # then the first arrival from Zora River set the quest back to Step03.
+        source = self.read(s.ARRIVE_FLOW)
+        raw, guarded = s.first_arrival_forward(s.ARRIVE_FLOW, source, self.steps())
+        events = self.chart(raw)
+        # Impa met or not, then: past the step? complete? only then the request.
+        choice = events['Event46'].data
+        for case, step, event in ((0, 'Step03_Impa', 'Event45'), (1, 'Step03', 'Event44')):
+            after = choice.cases[case].v.data
+            self.assertEqual(after.params.data, {'GameDataName': f'Get_StoneOfWater_IsAfter_{step}_Exp'})
+            done = after.cases[1].v.data
+            self.assertEqual(done.params.data, {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'})
+            self.assertEqual(done.cases[1].v.name, event)
+            self.assertNotEqual(after.cases[0].v.name, event)    # past it: skipped
+        colossus = events['Event82'].data.nxt.v.data             # after the Colossus presentation
+        self.assertEqual(colossus.params.data, {'GameDataName': 'SageOfSpirit_IsAfter_Step04_Exp'})
+        self.assertEqual({e for e, _, _ in guarded}, {'Event44', 'Event45', 'Event76'})
+        self.check_kept(source, raw)
+
+    def test_trail_and_market_arrivals_keep_their_quests(self):
+        steps = self.steps()
+        for path, event in ((s.FIRE_STONE_FLOW, 'Event156'), (s.CASTLE_FLOW, 'Event51')):
+            with self.subTest(path=path):
+                source = self.read(path)
+                raw, guarded = s.first_arrival_forward(path, source, steps)
+                self.assertIn(event, {e for e, _, _ in guarded})
+                self.check_kept(source, raw)
+        files, report = s.keep_first_arrivals_forward(self.read, self.read('RSDB/Challenge.Product.111.rstbl.byml.zs'))
+        self.assertEqual(set(files), set(s.FIRST_ARRIVAL_REQUESTS))
+
+    def test_arrival_expressions_exist(self):
+        from oot_rando.patching.quest_guard import check_expressions, after_expression
+        from oot_rando.patching.soul_adapter import GAMEDATA
+        names = []
+        for requests in s.FIRST_ARRIVAL_REQUESTS.values():
+            for challenge, wanted in requests:
+                names += [after_expression(challenge, step) for step in wanted]
+                names.append(f'{challenge}_IsCompleted_Exp')
+        check_expressions(self.read(GAMEDATA), names)
+
     def test_flags_exist_in_the_game_data(self):
         from oot_rando.patching.soul_adapter import GAMEDATA, murmur3
         data = Byml(self.read(GAMEDATA)).root['Data']
         bools = {e['Hash'] for e in data['Bool']}
         exps = {e['Hash'] for e in data['BoolExp']}
-        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG):
+        stone_flags = tuple(s.STONE_FLAG_PREFIX + stone for stone in s.STONES)
+        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG) + stone_flags:
             self.assertIn(murmur3(name), bools, name)
         for name in (s.AFTER_SARIA_PLAY, s.SHEIK_PRESENCE, s.DOOR_STARTED, s.DOOR_BEFORE_ESCAPE,
                      s.FIRE_QUEST_STARTED):
