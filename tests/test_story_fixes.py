@@ -117,7 +117,9 @@ class GameFlows(unittest.TestCase):
         self.assertEqual(before.params.data, {'GameDataName': s.DOOR_BEFORE_ESCAPE})
         check, held = before.cases[1].v, []                    # ...and Step03 not reached
         while check.name.startswith('RandoDoorStonesStone'):
-            held.append(check.data.params.data['Actor'])
+            params = check.data.params.data            # the saved flag, not the pouch
+            self.assertEqual(params['Index'], -1)
+            held.append(params['GameDataName'].removeprefix(s.STONE_FLAG_PREFIX))
             check = check.data.cases[0].v
         self.assertEqual(held, list(s.STONES))
         self.assertEqual(check.data.params.data['StepName'], 'Step03')
@@ -145,7 +147,8 @@ class GameFlows(unittest.TestCase):
         data = Byml(self.read(GAMEDATA)).root['Data']
         bools = {e['Hash'] for e in data['Bool']}
         exps = {e['Hash'] for e in data['BoolExp']}
-        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG):
+        stone_flags = tuple(s.STONE_FLAG_PREFIX + stone for stone in s.STONES)
+        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG) + stone_flags:
             self.assertIn(murmur3(name), bools, name)
         for name in (s.AFTER_SARIA_PLAY, s.SHEIK_PRESENCE, s.DOOR_STARTED, s.DOOR_BEFORE_ESCAPE,
                      s.FIRE_QUEST_STARTED):

@@ -284,6 +284,7 @@ SHEIK_PRESENCE_ENTRY = {'FlagName': SHEIK_PRESENCE, 'IsCheckLazy': False, 'IsNeg
 DOOR_FLOW = 'Event/EventFlow/DoorOfTime.bfevfl.zs'
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
 STONES = ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water')
+STONE_FLAG_PREFIX = 'IsGet.'   # saved when the stone is obtained, however it is given
 DOOR_STARTED = 'DoorOfTime_IsAfter_Step01_Exp'
 DOOR_BEFORE_ESCAPE = 'DoorOfTime_IsAfter_Step2_2_Exp'
 BRIDGE_CLOSED = 'IsHyruleFieldBridgeClose'
@@ -302,8 +303,11 @@ def _stone_check(flow, prefix, following):
     step.data.nxt, bridge.data.nxt = make_index(bridge), make_index(count)
     check = step
     for index, stone in reversed(list(enumerate(STONES))):
-        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsExistInPouch', {'Actor': stone, 'Num': 1},
-                            check, following, actor='PouchSystemActor')
+        # The saved ``IsGet.<actor>`` flag: the pouch only answers to pouch names, never
+        # to the actor name (EventQueryIsExistInPouch on Item_Stone_* was always false,
+        # so Zelda still waited for the bosses; 15/11 report).
+        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsGameDataBool',
+                            {'GameDataName': STONE_FLAG_PREFIX + stone, 'Index': -1}, check, following)
     before = flow.switch(prefix + 'BeforeEscape', 'EventQueryIsGameDataBoolExp',
                          {'GameDataName': DOOR_BEFORE_ESCAPE}, following, check)
     return flow.switch(prefix + 'Started', 'EventQueryIsGameDataBoolExp',

@@ -425,8 +425,9 @@ def verify(nup_path, seed_dir):
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')
-                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != {
-                        'FlagName': flag, 'IsNegation': False, 'IsCheckLazy': False}:
+                from oot_rando.patching.soul_adapter import soul_presence
+                key = flag[len(FLAG_PREFIX + 'Item_Soul_'):]
+                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != soul_presence(flag, key):
                     raise ValueError('Unexpected presence: ' + path)
                 soul_actors.add(flag[len(FLAG_PREFIX):])
                 a2['Presence'] = b2['Presence']
