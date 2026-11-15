@@ -99,10 +99,21 @@ OCARINAS = ('Item_Ocarina_Fairy', 'Item_Ocarina_Time')
 OCARINA_SITES = ('LW Gift from Saria', 'HF Ocarina of Time Item')
 
 
-def can_take(canonical, form, ap=()):
+# Native dungeon items credited only by the big chest sequence (Dm_SY_Treasurebox:
+# EventGetDungeonBossKey / Map / Compass). The small chest sequence only knows the
+# small key, and nothing else credits them to the dungeon: anywhere else they would
+# be shown and lost. Every remake map, compass and boss key stands in a big chest.
+BIG_CHEST_ONLY = ('Item_Dungeon_BossKey', 'Item_Dungeon_Map', 'Item_Dungeon_Compass')
+BIG_CHEST_ACTORS = ('Obj_TBox_A_02', 'Obj_TBox_A_03')
+
+
+def can_take(canonical, form, ap=(), actor=''):
     """Whether an item can be given by a location of ``form`` (statically).
 
-    ``ap``: AP locations of the location (only needed for the ocarinas)."""
+    ``ap``: AP locations of the location (only needed for the ocarinas);
+    ``actor``: the chest actor (only needed for the dungeon items)."""
+    if canonical in BIG_CHEST_ONLY:
+        return form == 'chest' and str(actor).startswith(BIG_CHEST_ACTORS)
     if canonical in OCARINAS:
         return form == 'world' or (form == 'event' and any(l in OCARINA_SITES for l in ap))
     if canonical.startswith('Shop_'):
