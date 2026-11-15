@@ -9,7 +9,8 @@ import copy
 import re
 from collections import defaultdict
 
-from oot_rando.logic.world import REMAKE_LOCATION_REGIONS, REMAKE_LOCATION_RULES, World  # noqa: F401
+from oot_rando.logic.world import (REMAKE_EXIT_RULES, REMAKE_LOCATION_REGIONS,  # noqa: F401
+                                   REMAKE_LOCATION_RULES, World)
 
 TRIALS = ('Forest', 'Fire', 'Water', 'Shadow', 'Spirit', 'Light')
 STONES = ('Kokiri Emerald', 'Goron Ruby', 'Zora Sapphire')
@@ -210,6 +211,7 @@ class Logic:
             self._region = name
             compiled = {'exits': [], 'locations': [], 'events': []}
             for target, rule in region.get('exits', {}).items():
+                rule = REMAKE_EXIT_RULES.get(f'{name} -> {target}', rule)
                 requirement = extra_exit_requirements.get((name, target))
                 compiled['exits'].append((target, self.compile(rule, requirement)))
             own = {l: r for l, r in region.get('locations', {}).items()
@@ -234,6 +236,8 @@ class Logic:
         self._region = None
         missing = {t for r in self.regions.values() for t, _ in r['exits']} - set(self.regions)
         missing |= set(self.remake_events) - set(self.regions)
+        known_exits = {f"{r['region_name']} -> {t}" for r in data.regions for t in r.get('exits', {})}
+        missing |= set(REMAKE_EXIT_RULES) - known_exits
         if missing:
             raise ValueError('Unknown AP regions: ' + ', '.join(sorted(missing)))
 

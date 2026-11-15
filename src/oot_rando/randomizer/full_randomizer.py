@@ -443,7 +443,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
             return False
         if rule == 'overworld' and folder_dungeon[gid] is not None:
             return False
-        return can_take(canonical(item, gid), shuffled[gid]['form'], shuffled[gid].get('ap', ()))
+        return can_take(canonical(item, gid), shuffled[gid]['form'], shuffled[gid].get('ap', ()),
+                        shuffled[gid].get('actor', ''))
 
     # OoTR/AP vanilla-key compensation: with vanilla Fire Temple keys the logic
     # starts with one extra key (the vanilla layout expects the hammer door order).
