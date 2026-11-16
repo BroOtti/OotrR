@@ -267,6 +267,43 @@ def sheik_presence_edits(root):
 SHEIK_PRESENCE_ENTRY = {'FlagName': SHEIK_PRESENCE, 'IsCheckLazy': False, 'IsNegation': False}
 
 
+# --- Zora's River mouth: no invisible wall for adult Link -------------------------
+# Seven ``FldObj_AirWall_Player_GenerateNavMesh`` stand along the fence at the river
+# mouth (ZoraRiver_Adult_Static, x -88..-56, z 5..7, baked in the X3_Z4 static
+# compound), in one SimultaneousGroup with the two ``Obj_BrokenRock_A_01`` boulders.
+# AP lets adult Link hop the fence (``is_adult or has_explosives``); the 0.6.2 logic
+# asked for the boulder broken instead, but the wall still stopped adult Link in game
+# (Discord, 16/11). Each wall now only exists for child Link (``Sequence_IsChildhood``,
+# never true in the adult map), the way Mido's air wall depends on its flag. The child
+# map keeps its walls: child Link still needs explosives, as in AP. Not validated in game.
+ZORA_RIVER_MAP = 'Banc/ZoraRiver/ZoraRiver_Adult_Static.bcett.byml.zs'
+ZORA_RIVER_WALL = 'FldObj_AirWall_Player_GenerateNavMesh'
+ZORA_RIVER_WALLS = (4565321854739336115, 7850395794748438732, 7982339630050931435, 9371429508151251838,
+                    11266001672277786960, 13781426553798151043, 14077907143773739344)
+ZORA_RIVER_WALL_PRESENCE = 'Sequence_IsChildhood'
+ZORA_RIVER_WALL_PRESENCE_ENTRY = {'FlagName': ZORA_RIVER_WALL_PRESENCE, 'IsCheckLazy': False,
+                                  'IsNegation': False}
+
+
+def zora_river_wall_edits(root):
+    """``patch_strings`` edits: the river mouth walls of the adult map, child-only.
+
+    Returns (edits, actor indices)."""
+    found = {actor.get('Hash'): i for i, actor in enumerate(root.get('Actors', []))
+             if actor.get('Hash') in ZORA_RIVER_WALLS}
+    if set(found) != set(ZORA_RIVER_WALLS):
+        raise ValueError("Zora's River mouth walls not found.")
+    edits = []
+    for ident in ZORA_RIVER_WALLS:
+        actor = root['Actors'][found[ident]]
+        if actor.get('Gyaml') != ZORA_RIVER_WALL or 'Presence' in actor:
+            raise ValueError("Unexpected Zora's River mouth wall.")
+        base = ('Actors', found[ident], 'Presence')
+        edits += [{'path': base + (key,), 'before': None, 'after': value}
+                  for key, value in ZORA_RIVER_WALL_PRESENCE_ENTRY.items()]
+    return edits, sorted(found.values())
+
+
 # --- Zelda's escape (DoorOfTime) on the three stones ---------------------------
 # ``DoorOfTime/DoorOfTime_CheckStoneNum`` runs only at the end of Dodongo's Cavern and
 # Jabu-Jabu's Belly and reads both dungeon *quests*: with the stones found elsewhere,

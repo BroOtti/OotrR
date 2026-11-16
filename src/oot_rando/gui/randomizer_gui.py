@@ -18,6 +18,7 @@ from oot_rando.tracker.auto_tracker import TrackerSession, newest_save
 from oot_rando.tracker import game_overlay
 from oot_rando.tracker import live_memory
 from oot_rando.randomizer import spoiler_report
+from oot_rando.randomizer import settings_string
 from oot_rando.tracker import turbo_a
 from oot_rando.patching.randomize_kokiri import POOL, TITLE
 from oot_rando.game.randomizer_categories import CATEGORIES
@@ -67,7 +68,7 @@ OPTION_COPY = {
     'shuffle_npc_gifts': ('Character gifts and minigames', 'Shuffles the supported rewards of characters and minigames.'),
     'shuffle_boss_rewards': ('Boss and dungeon rewards', 'Shuffles spiritual stones, medallions and heart containers. The game scenes are kept.'),
     'shuffle_great_fairies': ('Great fairy rewards', 'Shuffles spells, magic and defense upgrades.'),
-    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows and the Biggoron Sword. Songs stay in place.'),
+    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs stay in place.'),
     'shuffle_pots': ('Pots', 'The first reward is shuffled. Once picked up, the pot goes back to its vanilla loot.'),
     'shuffle_crates': ('Crates', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
     'shuffle_beehives': ('Beehives', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
@@ -134,7 +135,7 @@ OPTION_TIPS = {
                   'the logic stays on sale; the mask shop is kept.',
     'shuffle_npc_gifts': 'Rewards given by characters and minigames (the supported ones) are shuffled.',
     'shuffle_quest_rewards': 'The big story rewards are shuffled: ocarinas, Zelda\'s Letter (the child trade '
-                             'quest is shuffled with it), the Light Arrows and the Biggoron Sword.',
+                             'quest is shuffled with it), the Light Arrows, the Biggoron Sword and Ruto\'s Letter (the bottle in Lake Hylia).',
     'shuffle_boss_rewards': 'Spiritual stones, medallions and boss heart containers are shuffled. The scenes '
                             'still play.',
     'shuffle_great_fairies': 'The great fairies give shuffled items instead of spells, magic and defense.',
@@ -639,6 +640,11 @@ class Application:
         row = self.buttons(box)
         ttk.Entry(row, textvariable=self.seed).pack(side='left', fill='x', expand=True)
         ttk.Button(row, text='Random', command=lambda: self.seed.set(secrets.token_hex(8))).pack(side='left', padx=(8, 0))
+        row = self.buttons(box, pady=(8, 0))
+        ttk.Label(row, text='Seed string: the seed name and every setting in one text to share.',
+                  style='Muted.TLabel').pack(side='left')
+        ttk.Button(row, text='Paste a seed string…', command=self.import_seed_string).pack(side='right')
+        ttk.Button(row, text='Copy seed string', command=self.copy_seed_string).pack(side='right', padx=(0, 8))
 
     def build_generate_section(self, parent):
         box = self.card(parent)
@@ -1298,6 +1304,38 @@ class Application:
         else:
             self.full_enabled.set(False)
             self.update_category_states()
+
+    def copy_seed_string(self):
+        try:
+            text = settings_string.encode(self.get_settings())
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.status.set(f'Seed string copied ({len(text)} characters). Share it with the same version '
+                            f'of the randomizer ({APP_VERSION}).')
+        except Exception as error:
+            self.error(error)
+
+    def import_seed_string(self):
+        try:
+            clipboard = self.root.clipboard_get().strip()
+        except tk.TclError:
+            clipboard = ''
+        initial = clipboard if clipboard.upper().startswith(settings_string.PREFIX) else ''
+        text = simpledialog.askstring('Paste a seed string', 'Seed string (starts with '
+                                      + settings_string.PREFIX + '):', initialvalue=initial, parent=self.root)
+        if not text or not text.strip():
+            return
+        try:
+            settings, version = settings_string.decode(text)
+            if version != GENERATOR_VERSION and not messagebox.askyesno(
+                    'Other randomizer version',
+                    f'This seed string comes from generator {version}; this application uses '
+                    f'{GENERATOR_VERSION}. The same settings may give a different game. Import anyway?'):
+                return
+            self.apply_settings(settings)
+            self.status.set('Seed string imported: seed "' + settings.seed + '".')
+        except Exception as error:
+            self.error(error)
 
     def import_settings(self):
         name = filedialog.askopenfilename(filetypes=[('JSON settings', '*.json')])

@@ -106,7 +106,14 @@ NPC_GIFTS = (
 # Never shuffled, whatever the options (documented exclusions).
 EXCLUDED_NPC_LOCATIONS = ('DMT Biggoron', 'Kak Anju as Adult', 'GC Medigoron', 'Wasteland Bombchu Salesman',
                           'ZR Magic Bean Salesman', 'HC Malon Egg', 'HC Zeldas Letter', 'HF Ocarina of Time Item',
-                          'LH Underwater Item', 'Hideout Gerudo Membership Card', 'LH Sun')
+                          'Hideout Gerudo Membership Card', 'LH Sun')
+# Ruto's Letter: the bottle Link fishes out of Lake Hylia is a placed pickup of the
+# child Hyrule Field map (``Obj_Bottle_Letter``, its AP location below). It is a
+# story reward (``quest``): the generic get sequence (``Dm_SY_Get``) sets
+# ``Get_StoneOfWater_GetRutoLetter`` from the pouch actor's tag, whatever gives the
+# letter, and a derived pickup keeps ``Item_Bottle_Letter`` as its pouch actor.
+LETTER_ACTOR = 'Obj_Bottle_Letter'
+LETTER_LOCATION = 'LH Underwater Item'
 # Cutscene rewards: (source, AP locations, guards, ((event file stem, event, vanilla actor), ...)).
 # Every site of one reward gets the same item: the visible "get" box and, when
 # the cutscene adds the item silently first (ocarinas), that pouch addition too.
@@ -226,6 +233,13 @@ def scan_map_sources(maps, instance_param=None, world_respawn=None):
                     {'resource': path, 'index': index, 'field': 'Drop__DropActor', 'before': before}, ident)
                 if before is not None:
                     entries[f'{folder}#gs#{ident}']['reason'] = 'existing_drop'
+            elif name == LETTER_ACTOR:
+                gid = f'{folder}#letter#{ident}'
+                add('quest', 'world', gid, folder, name, 'Rutos Letter',
+                    {'resource': path, 'index': index, 'field': 'Gyaml', 'before': name}, ident)
+                entries[gid].update(kind='exact', ap=[LETTER_LOCATION])
+                if 'Presence' in actor:
+                    entries[gid]['reason'] = 'conditional_presence'
             elif name == 'Obj_Heart_Container':
                 gid = f'{folder}#heart#{ident}'
                 add('bossheart', 'world', gid, folder, name, 'Heart Container',

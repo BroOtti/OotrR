@@ -2,6 +2,7 @@
 import _src_path  # noqa: F401  (src on sys.path)
 import os
 import unittest
+from unittest import mock
 
 from oot_rando.formats import byml_codec
 from oot_rando.formats.byml_writer import patch_strings
@@ -24,6 +25,26 @@ class SheikUnits(unittest.TestCase):
             s.sheik_presence_edits(root)
         with self.assertRaises(ValueError):    # no Sheik
             s.sheik_presence_edits({'Actors': [{'Gyaml': 'Npc_X'}]})
+
+
+class ZoraRiverWallUnits(unittest.TestCase):
+    @mock.patch.object(s, 'ZORA_RIVER_WALLS', tuple(range(10, 17)))   # 32-bit hashes in the fixture
+    def test_river_mouth_walls_become_child_only(self):
+        actors = [{'Gyaml': 'Obj_BrokenRock_A_01', 'Hash': 1}]
+        actors += [{'Gyaml': s.ZORA_RIVER_WALL, 'Hash': h} for h in s.ZORA_RIVER_WALLS]
+        actors.append({'Gyaml': s.ZORA_RIVER_WALL, 'Hash': 2})     # another wall of the map
+        raw = byml_codec.dump({'endian': '<', 'version': 7, 'root': {'Actors': actors}})
+        edits, indices = s.zora_river_wall_edits(Byml(raw).root)
+        self.assertEqual(indices, list(range(1, 1 + len(s.ZORA_RIVER_WALLS))))
+        root = Byml(patch_strings(raw, edits)).root
+        for index in indices:
+            self.assertEqual(root['Actors'][index]['Presence'], s.ZORA_RIVER_WALL_PRESENCE_ENTRY)
+        self.assertNotIn('Presence', root['Actors'][0])
+        self.assertNotIn('Presence', root['Actors'][-1])
+        with self.assertRaises(ValueError):    # never applied twice
+            s.zora_river_wall_edits(root)
+        with self.assertRaises(ValueError):    # a wall missing
+            s.zora_river_wall_edits({'Actors': actors[:3]})
 
 
 @unittest.skipUnless(NUP, 'OOT_NUP not set')
@@ -105,6 +126,21 @@ class GameFlows(unittest.TestCase):
         sheik = [a for a in root['Actors'] if a.get('Gyaml') == s.SHEIK]
         self.assertEqual(len(sheik), 1)
         self.assertEqual(sheik[0]['Presence'], s.SHEIK_PRESENCE_ENTRY)
+
+    def test_zora_river_walls(self):
+        raw = self.read(s.ZORA_RIVER_MAP)
+        before = Byml(raw).root
+        edits, indices = s.zora_river_wall_edits(before)
+        root = Byml(patch_strings(raw, edits)).root
+        walls = [a for a in root['Actors'] if a.get('Hash') in s.ZORA_RIVER_WALLS]
+        self.assertEqual(len(walls), 7)
+        self.assertTrue(all(a['Presence'] == s.ZORA_RIVER_WALL_PRESENCE_ENTRY for a in walls))
+        # Same walls as the boulders' simultaneous group; nothing else changes.
+        group = next(g for g in before['SimultaneousGroups'] if set(s.ZORA_RIVER_WALLS) <= set(g))
+        self.assertEqual(len(group), 9)
+        for index, (a, b) in enumerate(zip(before['Actors'], root['Actors'])):
+            if index not in indices:
+                self.assertEqual(a, b)
 
     def test_zelda_escape_on_stones_at_item_get(self):
         from oot_rando.patching.qol_patches import ocarina_guide_on_get

@@ -429,6 +429,16 @@ def verify(nup_path, seed_dir):
                     raise ValueError('Unexpected Sheik presence: ' + path)
                 a2['Presence'] = dict(SHEIK_PRESENCE_ENTRY)
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
+            wall_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('zora_river_wall')
+            if wall_fix and path == wall_fix['map'] and index in wall_fix['actors'] and 'Presence' not in a2:
+                # Zora's River mouth walls only for child Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (ZORA_RIVER_WALL, ZORA_RIVER_WALLS,
+                                                            ZORA_RIVER_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != ZORA_RIVER_WALL or a2.get('Hash') not in ZORA_RIVER_WALLS
+                        or wall_fix['presence'] != ZORA_RIVER_WALL_PRESENCE_ENTRY['FlagName']):
+                    raise ValueError("Unexpected Zora's River wall presence: " + path)
+                a2['Presence'] = dict(ZORA_RIVER_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')
                 from oot_rando.patching.soul_adapter import soul_presence
