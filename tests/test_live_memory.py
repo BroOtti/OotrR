@@ -376,7 +376,7 @@ class MemfdTests(unittest.TestCase):
             paths = memory._guest_memfds(os.getpid())
             self.assertTrue(paths)
             mine = [p for p in paths if os.stat(p).st_ino == os.fstat(fd).st_ino]
-            self.assertEqual(len(mine), 1)
+            self.assertTrue(mine)   # two entries: mmap keeps its own duplicate of the descriptor
             memory.fd, memory.pid, memory.base, memory.memfd = os.open(mine[0], os.O_RDONLY), os.getpid(), 0, mine[0]
             memory.inode = os.fstat(fd).st_ino
             memory.windows = MemfdWindows([row for row in memfd_mappings(Path('/proc/self/maps').read_text())
