@@ -155,6 +155,7 @@ ACTOR_ITEMS = {
     'Item_FairyBless_DefenseDouble': 'Double Defense',
     'Item_Ocarina_Fairy': 'Ocarina', 'Item_Ocarina_Time': 'Ocarina',
     'Item_ZeldaLetter': 'Zeldas Letter', 'Item_Arrow_Light': 'Light Arrows',
+    'Item_Bottle_Letter': 'Rutos Letter',
     'Item_Sword_Biggoron': 'Biggoron Sword',
     # Remake-only items with no AP equivalent: never part of the logic.
     'Tbox_MagicJar_Large': 'Remake: Magic Jar', 'Item_ScrubBusinessSeed': 'Remake: Scrub Seed',

@@ -73,7 +73,7 @@
  "exit_rules": {
   "ZR Front -> Zora River": {
    "rule": "can_blast_or_smash",
-   "why": "The remake does not let adult Link hop past the boulder at the river mouth: it must be blown up or smashed (prudence until checked in game)."
+   "why": "The remake does not let adult Link hop past the boulder at the river mouth: it must be blown up or smashed. The seed now makes the river mouth air walls child-only (story_fixes.zora_river_wall_edits); this rule stays until adult Link is seen passing in game, then AP's 'is_adult or has_explosives' can come back."
   },
   "Market Back Alley -> Market Bombchu Shop": {
    "rule": "at_night and 'Dodongos Cavern Clear'",

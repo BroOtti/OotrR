@@ -471,6 +471,12 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             raw_maps[story_fixes.TEMPLE_MAP] = patch_strings(temple, sheik_edits)
             story['sheik'] = {'map': story_fixes.TEMPLE_MAP, 'actor': sheik_edits[0]['path'][1],
                               'presence': story_fixes.SHEIK_PRESENCE}
+            # Adult Link is no longer stopped by an invisible wall at Zora's River mouth.
+            river = raw_maps.get(story_fixes.ZORA_RIVER_MAP) or decompress(read(story_fixes.ZORA_RIVER_MAP), d)
+            wall_edits, wall_actors = story_fixes.zora_river_wall_edits(Byml(river).root)
+            raw_maps[story_fixes.ZORA_RIVER_MAP] = patch_strings(river, wall_edits)
+            story['zora_river_wall'] = {'map': story_fixes.ZORA_RIVER_MAP, 'actors': wall_actors,
+                                        'presence': story_fixes.ZORA_RIVER_WALL_PRESENCE}
             # Zelda's escape on the three stones, checked at every item get.
             extra_raw[ACTION_GUIDE_FLOW], story['zelda_escape_item_get'] = story_fixes.zelda_escape_on_item_get(
                 extra_raw[ACTION_GUIDE_FLOW])

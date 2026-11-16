@@ -68,7 +68,7 @@ OPTION_COPY = {
     'shuffle_npc_gifts': ('Character gifts and minigames', 'Shuffles the supported rewards of characters and minigames.'),
     'shuffle_boss_rewards': ('Boss and dungeon rewards', 'Shuffles spiritual stones, medallions and heart containers. The game scenes are kept.'),
     'shuffle_great_fairies': ('Great fairy rewards', 'Shuffles spells, magic and defense upgrades.'),
-    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows and the Biggoron Sword. Songs stay in place.'),
+    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs stay in place.'),
     'shuffle_pots': ('Pots', 'The first reward is shuffled. Once picked up, the pot goes back to its vanilla loot.'),
     'shuffle_crates': ('Crates', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
     'shuffle_beehives': ('Beehives', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
@@ -135,7 +135,7 @@ OPTION_TIPS = {
                   'the logic stays on sale; the mask shop is kept.',
     'shuffle_npc_gifts': 'Rewards given by characters and minigames (the supported ones) are shuffled.',
     'shuffle_quest_rewards': 'The big story rewards are shuffled: ocarinas, Zelda\'s Letter (the child trade '
-                             'quest is shuffled with it), the Light Arrows and the Biggoron Sword.',
+                             'quest is shuffled with it), the Light Arrows, the Biggoron Sword and Ruto\'s Letter (the bottle in Lake Hylia).',
     'shuffle_boss_rewards': 'Spiritual stones, medallions and boss heart containers are shuffled. The scenes '
                             'still play.',
     'shuffle_great_fairies': 'The great fairies give shuffled items instead of spells, magic and defense.',
