@@ -120,6 +120,40 @@ class GameFlows(unittest.TestCase):
         self.assertIs(cases[0].v, cases[1].v)
         self.check_kept(source, raw)
 
+    def test_great_fairies_open(self):
+        source = self.read(s.FAIRY_CALL_FLOW)
+        raw, report = s.open_great_fairies(source)
+        cases = self.chart(raw)['Event8'].data.cases
+        self.assertIs(cases[0].v, cases[1].v)
+        self.assertNotEqual(cases[1].v.name, report['refusal'])
+        self.check_kept(source, raw)
+
+    def test_great_fairies_counted_by_their_flags(self):
+        raw, report = s.open_and_count_great_fairies(self.read(s.FAIRY_CALL_FLOW))
+        events = self.chart(raw)
+        names = {events[e].data.params.data['GameDataName'] for e in report['queries']}
+        self.assertEqual(names, set(s.fairy_flags().values()))
+        self.assertIs(events['Event8'].data.cases[0].v, events['Event8'].data.cases[1].v)
+
+    def test_great_fairy_reward_sets_her_own_flag(self):
+        for name, reward, actor in s.GREAT_FAIRIES:
+            with self.subTest(name):
+                source = self.read(s.fairy_flow(name))
+                raw, report = s._fairy_reward_flag(name, reward, actor)(source)
+                events = self.chart(raw)
+                given = events['RandoGreatFairyGiven']
+                self.assertEqual(given.data.params.data,
+                                 {'GameDataName': s.GREAT_FAIRY_FLAG_PREFIX + name, 'Value': True, 'Index': -1})
+                self.assertEqual(given.data.nxt.v.name, reward)
+                queried = {e.data.params.data.get('GameDataName') for e in events.values()
+                           if type(e.data).__name__ == 'SwitchEvent' and e.data.params is not None}
+                self.assertNotIn('IsGet.' + actor, queried)
+                self.assertIn(s.GREAT_FAIRY_FLAG_PREFIX + name, queried)
+                self.assertFalse(queried & {'IsGet.' + a for _, _, a in s.GREAT_FAIRIES})
+
+    def test_great_fairy_flags_unique(self):
+        self.assertEqual(len(s.great_fairy_saved_flags()), 6)
+
     def test_temple_sheik(self):
         raw = self.read(s.TEMPLE_MAP)
         root = Byml(patch_strings(raw, s.sheik_presence_edits(Byml(raw).root))).root

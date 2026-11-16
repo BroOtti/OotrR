@@ -486,7 +486,10 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
         if gamedata_source is None:
             gamedata_source = decompress(read(GAMEDATA), d)
         goal_name = GOAL_MARKER_PREFIX + settings_identity(settings) if settings.archipelago is not None else None
-        extra_raw[GAMEDATA] = add_saved_flags(gamedata_source, {marker_name: False,
+        # Great Fairies: one saved flag each, set by her reward (patching/story_fixes.py).
+        from oot_rando.patching.story_fixes import great_fairy_saved_flags
+        fairy_flags = great_fairy_saved_flags() if settings.full is not None else {}
+        extra_raw[GAMEDATA] = add_saved_flags(gamedata_source, {marker_name: False, **fairy_flags,
                                                                 **({goal_name: False} if goal_name else {})})
         # Bind a save only when the actual new-game opening completes. A True
         # default would incorrectly bind an old save when its missing flags initialize.
