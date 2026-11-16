@@ -158,7 +158,8 @@ class GameFlows(unittest.TestCase):
             held.append(params['GameDataName'].removeprefix(s.STONE_FLAG_PREFIX))
             check = check.data.cases[0].v
         self.assertEqual(held, list(s.STONES))
-        self.assertEqual(check.data.params.data['StepName'], 'Step03')
+        native_step03 = self.chart(self.read(s.DOOR_FLOW))['Event37'].data.params.data
+        self.assertEqual(check.data.params.data, native_step03)       # the native request, IsWaitEnd too
         bridge = check.data.nxt.v
         self.assertEqual(bridge.data.params.data, {'GameDataName': s.BRIDGE_CLOSED, 'Value': True, 'Index': -1})
         self.assertEqual(bridge.data.nxt.v.data.nxt.v.name, 'RandoOcarinaHeld')   # then the vanilla get
@@ -170,7 +171,16 @@ class GameFlows(unittest.TestCase):
         events = self.chart(raw)
         guard = events['RandoDoorCheckForward'].data
         self.assertEqual(set(guard.cases), {1})                # Step03 reached: nothing
-        self.assertEqual(guard.cases[1].v.name, 'Event38')     # else the native dungeon check
+        # Dungeon end: the stones first, then the native dungeon check.
+        stones = guard.cases[1].v
+        self.assertEqual(stones.name, 'RandoDungeonEndStonesStarted')
+        self.assertEqual(stones.data.cases[1].v.name, 'Event38')          # send-off not done: native
+        check = stones.data.cases[0].v.data.cases[1].v                     # before Step03: the stones
+        while check.name.startswith('RandoDungeonEndStonesStone'):
+            self.assertEqual(check.data.cases[1].v.name, 'Event38')        # one missing: native
+            check = check.data.cases[0].v
+        self.assertEqual(check.data.params.data, events['Event37'].data.params.data)
+        self.assertIsNone(events['RandoDungeonEndStonesCount'].data.nxt.v)  # Step03: native skipped
         started = events['Event7'].data.nxt.v.data             # after Step02 of the send-off
         self.assertEqual(started.params.data, {'GameDataName': s.FIRE_QUEST_STARTED})
         self.assertEqual(started.cases[1].v.name, 'Event62')   # fire quest moved only if not started
@@ -181,6 +191,26 @@ class GameFlows(unittest.TestCase):
     def steps(self):
         from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
         return challenge_steps(self.read(CHALLENGES))
+
+    def test_door_of_time_steps_match_the_table(self):
+        self.assertEqual(tuple(self.steps()['DoorOfTime']), s.DOOR_STEPS)
+
+    def test_zelda_and_saria_never_move_door_of_time_back(self):
+        # 16/11: Zelda's talk (Fire quest done) and Saria's Song set DoorOfTime back to
+        # Srep2_1_1 from Step03: the drawbridge area (current step = Step03) vanished.
+        for path, request in ((s.ZELDA_FLOW, 'Event42'), (s.SARIA_SONG_FLOW, 'Event172')):
+            with self.subTest(path=path):
+                source = self.read(path)
+                raw, report = s.door_of_time_forward(source)
+                self.assertEqual([(e, step) for e, step, _ in report['guarded']], [(request, 'Srep2_1_1')])
+                events = self.chart(raw)
+                guard = events['RandoDoorForward_0'].data
+                self.assertEqual(guard.params.data, {'GameDataName': s.DOOR_PAST_SREP})
+                self.assertEqual(guard.cases[1].v.name, request)         # before: vanilla request
+                self.assertNotIn(0, guard.cases)                         # past: nothing (request ended the flow)
+                self.check_kept(source, raw)
+                with self.assertRaises(ValueError):
+                    s.door_of_time_forward(raw)
 
     def test_zora_domain_arrival_keeps_king_zora_moved(self):
         # Discord 15/11: Zora's Domain reached from Lake Hylia, the letter delivered,
@@ -232,7 +262,7 @@ class GameFlows(unittest.TestCase):
         for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG) + stone_flags:
             self.assertIn(murmur3(name), bools, name)
         for name in (s.AFTER_SARIA_PLAY, s.SHEIK_PRESENCE, s.DOOR_STARTED, s.DOOR_BEFORE_ESCAPE,
-                     s.FIRE_QUEST_STARTED):
+                     s.FIRE_QUEST_STARTED, s.DOOR_PAST_SREP):
             self.assertIn(murmur3(name), exps, name)
 
 
