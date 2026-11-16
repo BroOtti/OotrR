@@ -26,7 +26,8 @@ from oot_rando.patching.qol_patches import (STATIC, STATIC_SOURCE_SHA256, DYNAMI
                          DC_BOULDER_MODULE, let_bombs_break_dc_boulder, SCRUB_FLOW, keep_one_scrub_good,
                          ACTION_GUIDE_FLOW, ocarina_guide_on_get,
                          SWORD_CHEST_FLOW, skip_kokiri_sword_cutscene,
-                         NOCTURNAL_SKULLTULA_MAPS, nocturnal_skulltula_edits)
+                         NOCTURNAL_SKULLTULA_MAPS, nocturnal_skulltula_edits,
+                         NIGHT_SKULLTULA_MODULE, keep_night_skulltulas_by_day)
 from oot_rando.game.randomizer_categories import CATEGORIES
 from oot_rando.game.world_maps import SAFE_CATEGORIES, build_world, effective_members
 from oot_rando.game.resource_allocations import allocation, grow_resources, add_resources
@@ -394,6 +395,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
                     raw_maps[path], nocturnal = patch_strings(current, edits), nocturnal + len(edits)
             if not nocturnal:
                 raise ValueError('Night skulltulas not found in the maps.')
+            # The map logic deletes them by day: that delete input becomes false.
+            extra_raw[NIGHT_SKULLTULA_MODULE], _ = keep_night_skulltulas_by_day(
+                extra_raw.get(NIGHT_SKULLTULA_MODULE) or read(NIGHT_SKULLTULA_MODULE))
         from oot_rando.game.tracking_metadata import GAMEDATA, add_saved_flags, build_tracking, reward_label
         from oot_rando.patching.soul_adapter import murmur3
         marker_name = SEED_MARKER_PREFIX + (save_seed_id or settings_identity(settings))
@@ -858,6 +862,10 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
     for resource, edits in sorted(event_changes.items()):
         report('Event: ' + resource.split('/')[-1])
         modified[resource] = patch_event_params(decompress(read(resource), dictionaries_), edits)
+    from oot_rando.patching.qol_patches import SARIA_GIFT_FLOW, saria_add_before_display
+    if SARIA_GIFT_FLOW in event_changes:
+        # Saria's gift is in the pouch before its get window (and ActionGuide) runs.
+        modified[SARIA_GIFT_FLOW], _ = saria_add_before_display(modified[SARIA_GIFT_FLOW])
     from oot_rando.patching.event_patch import add_collection_markers
     from oot_rando.game.tracking_metadata import GAMEDATA, add_saved_flags
     markers, saved_flags = defaultdict(dict), {}
