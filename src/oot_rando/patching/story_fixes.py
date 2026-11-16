@@ -28,6 +28,19 @@ edit of one resource, checked by re-reading it (Discord reports of 15/11):
 * **Bombchu Bowling.** The alley opened only after Dodongo's Cavern
   (``MiniGame_BombchuBowling/AfterWakeUp`` Event137, ``Get_StoneOfFire_IsCompleted_Exp``):
   it is open from the start, as the logic expects.
+* **Great Fairies.** Zelda's Lullaby on a fountain's Triforce mark
+  (``TriForcePoint/Sub_PlayOcarinaSequence_FairyFountain``) only calls the fairy of
+  Din's Fire (Death Mountain Trail) at once; the five others stay away while
+  ``IsGet.Item_DinFire`` is false (Event8), so with Din's Fire shuffled away they
+  never came. Every fairy now answers the lullaby from the start; the way into
+  each fountain (bombable wall, boulder...) is unchanged.
+* **Great Fairy rewards given once, by the fairy.** On a later visit each fairy
+  only heals Link when ``IsGet.<her vanilla item>`` is true (Din's Fire, magic,
+  Farore's Wind...). That flag follows the item, not the fairy: Din's Fire found in
+  a chest first, the Death Mountain fairy never handed over her shuffled reward.
+  Each fairy now has her own saved flag (``RandoGreatFairy_<name>``), set right
+  before her reward, and every test of her vanilla item in the fountain flows
+  (and in ``TriForcePoint``, the six-fairy count of ``Meet_GreatFairy``) reads it.
 
 Bool switches: case 0 = true, case 1 = false (as the vanilla flows). Not validated in game.
 """
@@ -39,6 +52,29 @@ FIRE_STONE_FLOW = 'Event/EventFlow/Get_StoneOfFire.bfevfl.zs'
 DARUNIA_GIFT_FLOW = 'Event/EventFlow/Dm_Goron_0030.bfevfl.zs'
 EPONA_FLOW = 'Event/EventFlow/SubEvent_GetEponaSong.bfevfl.zs'
 BOWLING_FLOW = 'Event/EventFlow/MiniGame_BombchuBowling.bfevfl.zs'
+FAIRY_CALL_FLOW = 'Event/EventFlow/TriForcePoint.bfevfl.zs'
+FAIRY_CALL_GATE = 'IsGet.Item_DinFire'
+# Great Fairy flows: (fountain, reward event, vanilla pouch actor).
+GREAT_FAIRIES = (
+    ('Din', 'Event212', 'Item_DinFire'), ('Power', 'Event141', 'Item_FairyBless_MP'),
+    ('Frore', 'Event174', 'Item_FaroreWind'), ('Nayru', 'Event163', 'Item_NayruLove'),
+    ('Wisdom', 'Event144', 'Item_FairyBless_MPDouble'), ('Courage', 'Event144', 'Item_FairyBless_DefenseDouble'),
+)
+GREAT_FAIRY_FLAG_PREFIX = 'RandoGreatFairy_'
+
+
+def fairy_flow(name):
+    return f'Event/EventFlow/Dm_FairyFountain_{name}.bfevfl.zs'
+
+
+def fairy_flags():
+    """``IsGet.<vanilla item>`` → the fairy's own saved flag, for every Great Fairy."""
+    return {'IsGet.' + actor: GREAT_FAIRY_FLAG_PREFIX + name for name, _, actor in GREAT_FAIRIES}
+
+
+def great_fairy_saved_flags():
+    """Bools to register in GameData (false in a new save)."""
+    return {flag: False for flag in fairy_flags().values()}
 TEMPLE_MAP = 'Banc/Market/Market_Adult_Static.bcett.byml.zs'
 
 DARUNIA_GIFT_PLAYED = 'HavePlayedEvent.Dm_Goron_0030'
@@ -247,6 +283,104 @@ def open_bombchu_bowling(raw):
     if cases[0].v.name != opened.name or cases[1].v.name != opened.name:
         raise ValueError('Bombchu Bowling gate not opened.')
     return result, {'flow': BOWLING_FLOW, 'gate': 'Event137', 'closed_talk': closed.name}
+
+
+def open_great_fairies(raw):
+    """``TriForcePoint``: every Great Fairy answers Zelda's Lullaby, Din's Fire held or not.
+
+    Returns (bytes, report)."""
+    from evfl.util import make_index
+    flow = _Chart(raw)
+    gate = flow.event('Event8', 'SwitchEvent')
+    called, refused = _case(gate, 0), _case(gate, 1)
+    ability = flow.event('Event132', 'SwitchEvent')
+    if (_params(gate) != {'GameDataName': FAIRY_CALL_GATE, 'Index': -1} or called is None
+            or refused is None or called is refused or _case(ability, 2) is not called):
+        raise ValueError('Unexpected Great Fairy call gate.')
+    gate.data.cases[1] = make_index(called)
+    result, events = flow.write()
+    cases = events['Event8'].data.cases
+    if cases[0].v.name != called.name or cases[1].v.name != called.name:
+        raise ValueError('Great Fairy call gate not opened.')
+    return result, {'flow': FAIRY_CALL_FLOW, 'gate': 'Event8', 'flag': FAIRY_CALL_GATE,
+                    'refusal': refused.name}
+
+
+def _read_fairy_flags(flow):
+    """Every Bool query of an item a Great Fairy gives now reads that fairy's flag."""
+    replaced = []
+    for name, event in flow.events.items():
+        data = event.data
+        if type(data).__name__ != 'SwitchEvent' or name.startswith('Rando'):
+            continue
+        if data.actor_query.v.v != 'EventQueryIsGameDataBool':
+            continue
+        params = data.params.data
+        target = fairy_flags().get(params.get('GameDataName'))
+        if target is None:
+            continue
+        if params.get('Index') != -1:
+            raise ValueError('Unexpected Great Fairy item query: ' + name)
+        params['GameDataName'] = target
+        flow.expected[name]['GameDataName'] = target
+        replaced.append(name)
+    return sorted(replaced)
+
+
+def _fairy_reward_flag(name, reward, actor):
+    """``Dm_FairyFountain_<name>``: the fairy's flag set just before her reward; her
+    item tests read it. Returns a fix ``raw -> (bytes, report)``."""
+    def fix(raw):
+        from oot_rando.patching.qol_patches import _predecessors
+        from evfl.util import make_index
+        flow = _Chart(raw)
+        gift = flow.event(reward, 'SubFlowEvent')
+        if (gift.data.res_flowchart_name != 'Dm_SY_GetInEvent'
+                or not gift.data.entry_point_name.startswith('GetInEvent') or 'ActorName' not in _params(gift)):
+            raise ValueError('Unexpected Great Fairy reward: ' + name)
+        links = _predecessors(flow.chart, gift)
+        if not links or any(kind == 'entry' for _, kind, _ in links):
+            raise ValueError('Unexpected Great Fairy reward links: ' + name)
+        flag = GREAT_FAIRY_FLAG_PREFIX + name
+        marker = flow.set_bool('RandoGreatFairyGiven', flag, True, gift)
+        for event, kind, key in links:
+            if kind == 'nxt':
+                event.data.nxt = make_index(marker)
+            elif kind == 'case':
+                event.data.cases[key] = make_index(marker)
+            else:
+                event.data.forks[key] = make_index(marker)
+        replaced = _read_fairy_flags(flow)
+        if not any(flow.events[e].data.params.data['GameDataName'] == flag for e in replaced):
+            raise ValueError('Great Fairy without a test of her own item: ' + name)
+        result, events = flow.write()
+        given = events['RandoGreatFairyGiven']
+        if given.data.nxt.v.name != reward or any(
+                e.data.params is not None and e.data.params.data.get('GameDataName') == 'IsGet.' + actor
+                for e in events.values() if type(e.data).__name__ == 'SwitchEvent'):
+            raise ValueError('Great Fairy flag wrongly chained: ' + name)
+        return result, {'flow': fairy_flow(name), 'flag': flag, 'before': reward, 'queries': replaced}
+    return fix
+
+
+def great_fairy_count(raw):
+    """``TriForcePoint``: the six fairies of ``Check_Complete`` counted by their own
+    flags (plus the opened call gate Event8, both cases alike).
+
+    Applied after ``open_great_fairies`` (same flow). Returns (bytes, report)."""
+    flow = _Chart(raw)
+    replaced = _read_fairy_flags(flow)
+    if replaced != sorted(['Event8', 'Event136', 'Event137', 'Event138', 'Event139', 'Event140', 'Event141']):
+        raise ValueError('Unexpected Great Fairy count in TriForcePoint.')
+    result, _ = flow.write()
+    return result, {'flow': FAIRY_CALL_FLOW, 'queries': replaced}
+
+
+def open_and_count_great_fairies(raw):
+    """``TriForcePoint``: every fairy answers the lullaby; she is counted by her own flag."""
+    opened, report = open_great_fairies(raw)
+    result, counted = great_fairy_count(opened)
+    return result, dict(report, queries=counted['queries'])
 
 
 def sheik_presence_edits(root):
@@ -531,6 +665,9 @@ FLOW_FIXES = (
     (DARUNIA_GIFT_FLOW, 'fire_quest_forward', keep_fire_quest_forward),
     (EPONA_FLOW, 'second_malon', second_malon_after_talon),
     (BOWLING_FLOW, 'bombchu_bowling', open_bombchu_bowling),
+    (FAIRY_CALL_FLOW, 'great_fairies', open_and_count_great_fairies),
+    *((fairy_flow(name), 'great_fairy_' + name.lower(), _fairy_reward_flag(name, reward, actor))
+      for name, reward, actor in GREAT_FAIRIES),
     (DOOR_FLOW, 'zelda_escape', zelda_escape_door_flow),
     (ZELDA_FLOW, 'zelda_talk_forward', door_of_time_forward),
     (SARIA_SONG_FLOW, 'saria_song_forward', door_of_time_forward),

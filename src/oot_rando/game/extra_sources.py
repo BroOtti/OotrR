@@ -129,11 +129,14 @@ EVENT_GIFTS = (
     ('boss', ('Bongo Bongo',), (), (('Dm_Awake_Shadow_Get', 'Event3', 'Item_Medal_Shadow'),)),
     ('boss', ('Twinrova',), (), (('Dm_Awake_Spirit_Get', 'Event14', 'Item_Medal_Spirit'),)),
     ('boss', ('Links Pocket',), (), (('Dm_SageRoom_0005', 'Event48', 'Item_Medal_Light'),)),
-    # Great fairies.
-    ('fairy', ('HC Great Fairy Reward',), (), (('Dm_FairyFountain_Din', 'Event212', 'Item_DinFire'),)),
+    # Great fairies. The remake swaps two fountains of the original game: the
+    # Death Mountain Trail fairy gives Din's Fire and the Hyrule Castle one the
+    # magic meter (map icons: DeathMountainTrail → HavePlayedEvent.Dm_FairyFountain_Din,
+    # HyruleCastle → HavePlayedEvent.Dm_FairyFountain_Power).
+    ('fairy', ('DMT Great Fairy Reward',), (), (('Dm_FairyFountain_Din', 'Event212', 'Item_DinFire'),)),
     ('fairy', ('ZF Great Fairy Reward',), (), (('Dm_FairyFountain_Frore', 'Event174', 'Item_FaroreWind'),)),
     ('fairy', ('Colossus Great Fairy Reward',), (), (('Dm_FairyFountain_Nayru', 'Event163', 'Item_NayruLove'),)),
-    ('fairy', ('DMT Great Fairy Reward',), (), (('Dm_FairyFountain_Power', 'Event141', 'Item_FairyBless_MP'),)),
+    ('fairy', ('HC Great Fairy Reward',), (), (('Dm_FairyFountain_Power', 'Event141', 'Item_FairyBless_MP'),)),
     ('fairy', ('DMC Great Fairy Reward',), (), (('Dm_FairyFountain_Wisdom', 'Event144', 'Item_FairyBless_MPDouble'),)),
     ('fairy', ('OGC Great Fairy Reward',), (), (('Dm_FairyFountain_Courage', 'Event144',
                                                  'Item_FairyBless_DefenseDouble'),)),
