@@ -446,12 +446,21 @@ def zora_river_wall_edits(root):
 # sets ``DoorOfTime_GetStoneCount`` to 0; the drawbridge area then starts
 # ``HyruleField_DoorOfTime_Escape`` (Step04), then the moat ``..._GetOcarinaOfTime``.
 # The same branch now also runs on the three stones held, checked at every item get
-# (``ActionGuide/ActionGuide``) and at the end of Impa's send-off, once DoorOfTime is
-# past ``Step01`` (send-off done) and not past ``Step2_2`` (before Step03; ``IsAfter``
-# is strict, as Darunia's vanilla gift shows). The native check is skipped once Step03
-# is reached, so a later dungeon end never moves it back (vanilla never runs it there).
-# The send-off moves Get_StoneOfFire to ``KakarikoVillageNpc``: now only while that
-# quest has not started (vanilla order), so Dodongo's Cavern done first stays done.
+# (``ActionGuide/ActionGuide``), at the end of Impa's send-off and at every dungeon end
+# (before the native check), once DoorOfTime is past ``Step01`` (send-off done) and not
+# past ``Step2_2`` (before Step03; ``IsAfter`` is strict, as Darunia's vanilla gift
+# shows). The Hyrule Field drawbridge area (``HyruleField_Child_Prefab_0ce5``) exists
+# only while the current step *is* Step03 (``HoldChallengeCurrentStepCheckOrder``
+# IsEqual): the dungeon quests are never read. The native check is skipped once
+# Step03 is reached, so a later dungeon end never moves it back (vanilla never runs it
+# there). The send-off moves Get_StoneOfFire to ``KakarikoVillageNpc``: now only while
+# that quest has not started (vanilla order), so Dodongo's Cavern done first stays done.
+#
+# 16/11 (Discord, 0.6.4): Zelda still waited for the dungeons. The added Step03 request
+# lacked ``IsWaitEnd`` (the native one, which works at the dungeon end, has it): it now
+# copies the native parameters exactly. Two talks also moved DoorOfTime back to
+# ``Srep2_1_1`` (Zelda's ``AboutWaterStone`` with the Fire quest done, Saria's Song):
+# both are now skipped once DoorOfTime is past ``Step2_1`` (:func:`door_of_time_forward`).
 DOOR_FLOW = 'Event/EventFlow/DoorOfTime.bfevfl.zs'
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
 STONES = ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water')
@@ -460,17 +469,23 @@ DOOR_STARTED = 'DoorOfTime_IsAfter_Step01_Exp'
 DOOR_BEFORE_ESCAPE = 'DoorOfTime_IsAfter_Step2_2_Exp'
 BRIDGE_CLOSED = 'IsHyruleFieldBridgeClose'
 FIRE_QUEST_STARTED = 'Get_StoneOfFire_IsAfter_Ready_Exp'
+# ``DoorOfTime/Event37``, the native Step03 request, parameter for parameter.
+DOOR_STEP03_PARAMS = {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengeProgressUI': False,
+                      'ChallengeName': 'DoorOfTime', 'IsWaitEnd': True, 'StepName': 'Step03'}
 
 
-def _stone_check(flow, prefix, following):
-    """Events: DoorOfTime to Step03 when started, before Step03, and the stones held."""
+def _stone_check(flow, prefix, following, done=...):
+    """Events: DoorOfTime to Step03 when started, before Step03, and the stones held.
+
+    ``following``: where the flow goes on when the check does not pass; ``done``: after
+    Step03 (``following`` by default)."""
     from evfl.util import make_index
+    done = following if done is ... else done
     step = flow.action(prefix + 'Step03', 'ChallengeSystemActor', 'EventExecuteProgressChallengeStep',
-                       {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengeProgressUI': False,
-                        'ChallengeName': 'DoorOfTime', 'StepName': 'Step03'}, None)
+                       DOOR_STEP03_PARAMS, None)
     bridge = flow.set_bool(prefix + 'Bridge', BRIDGE_CLOSED, True, None)
     count = flow.action(prefix + 'Count', 'GameDataActor', 'EventTriggerSetGameDataInt',
-                        {'GameDataName': 'DoorOfTime_GetStoneCount', 'Value': 0, 'Index': -1}, following)
+                        {'GameDataName': 'DoorOfTime_GetStoneCount', 'Value': 0, 'Index': -1}, done)
     step.data.nxt, bridge.data.nxt = make_index(bridge), make_index(count)
     check = step
     for index, stone in reversed(list(enumerate(STONES))):
@@ -512,8 +527,10 @@ def zelda_escape_door_flow(raw):
     native = entries.get('DoorOfTime_CheckStoneNum')
     if native is None or native.main_event.v is None or native.main_event.v.name != 'Event38':
         raise ValueError('Unexpected DoorOfTime stone check.')
+    # Dungeon end: the stones first (Step03 and done), else the native check (vanilla).
+    dungeon_end = _stone_check(flow, 'RandoDungeonEndStones', native.main_event.v, done=None)
     guard = flow.switch('RandoDoorCheckForward', 'EventQueryIsGameDataBoolExp',
-                        {'GameDataName': DOOR_BEFORE_ESCAPE}, None, native.main_event.v)
+                        {'GameDataName': DOOR_BEFORE_ESCAPE}, None, dungeon_end)
     native.main_event = make_index(guard)
     # Send-off: Step02 (Event7), then Get_StoneOfFire KakarikoVillageNpc (Event62), end.
     step02, fire = flow.event('Event7', 'ActionEvent'), flow.event('Event62', 'ActionEvent')
@@ -529,9 +546,34 @@ def zelda_escape_door_flow(raw):
     result, events = flow.write()
     if (events['Event7'].data.nxt.v.name != 'RandoFireQuestStarted'
             or events['Event62'].data.nxt.v.name != 'RandoSendOffStonesStarted'
-            or events['RandoDoorCheckForward'].data.cases[1].v.name != 'Event38'):
+            or events['RandoDoorCheckForward'].data.cases[1].v.name != 'RandoDungeonEndStonesStarted'
+            or events['RandoDungeonEndStonesStarted'].data.cases[1].v.name != 'Event38'
+            or events['RandoDungeonEndStonesCount'].data.nxt.v is not None):
         raise ValueError('DoorOfTime stone checks wrongly chained.')
-    return result, {'flow': DOOR_FLOW, 'native_guard': 'RandoDoorCheckForward', 'send_off': 'RandoSendOffStones'}
+    return result, {'flow': DOOR_FLOW, 'native_guard': 'RandoDoorCheckForward', 'send_off': 'RandoSendOffStones',
+                    'dungeon_end': 'RandoDungeonEndStones'}
+
+
+# DoorOfTime steps (``RSDB/Challenge``, checked against the table at generation).
+DOOR_STEPS = ('Ready', 'Step01', 'Step02', 'Step2_1', 'Srep2_1_1', 'Step2_2', 'Step03', 'Step04', 'Step05', 'Step06')
+ZELDA_FLOW = 'Event/EventFlow/Npc_Hylia_Zelda_Child.bfevfl.zs'
+SARIA_SONG_FLOW = 'Event/EventFlow/Dm_SY_Ocarina_SariaSong.bfevfl.zs'
+DOOR_BACK_REQUESTS = (ZELDA_FLOW, SARIA_SONG_FLOW)
+DOOR_PAST_SREP = 'DoorOfTime_IsAfter_Step2_1_Exp'   # strict: Srep2_1_1 or later
+
+
+def door_of_time_forward(raw):
+    """``Srep2_1_1`` requests skipped once DoorOfTime is past Step2_1 (never backwards).
+
+    Zelda's talk about the Water stone (Fire quest done) and Saria's Song request it
+    without checking where DoorOfTime stands: with the stones found first it went back
+    from Step03 and the drawbridge area disappeared. Returns (bytes, report)."""
+    from oot_rando.patching import quest_guard
+    result, report = quest_guard.guard_requests(raw, 'DoorOfTime', {'DoorOfTime': list(DOOR_STEPS)},
+                                                ('Srep2_1_1',), DOOR_PAST_SREP, prefix='RandoDoorForward_')
+    if not report['guarded']:
+        raise ValueError('No Srep2_1_1 request to guard.')
+    return result, report
 
 
 # --- The clock before Zelda ------------------------------------------------------
@@ -610,6 +652,8 @@ def keep_first_arrivals_forward(read_flow, challenges_raw):
     Returns ({path: bytes}, {path: guarded})."""
     from oot_rando.patching import quest_guard
     steps = quest_guard.challenge_steps(challenges_raw)
+    if tuple(steps.get('DoorOfTime', ())) != DOOR_STEPS:
+        raise ValueError('Unexpected DoorOfTime steps in the challenge table.')
     files, report = {}, {}
     for path in FIRST_ARRIVAL_REQUESTS:
         files[path], report[path] = first_arrival_forward(path, read_flow(path), steps)
@@ -625,4 +669,6 @@ FLOW_FIXES = (
     *((fairy_flow(name), 'great_fairy_' + name.lower(), _fairy_reward_flag(name, reward, actor))
       for name, reward, actor in GREAT_FAIRIES),
     (DOOR_FLOW, 'zelda_escape', zelda_escape_door_flow),
+    (ZELDA_FLOW, 'zelda_talk_forward', door_of_time_forward),
+    (SARIA_SONG_FLOW, 'saria_song_forward', door_of_time_forward),
 )
