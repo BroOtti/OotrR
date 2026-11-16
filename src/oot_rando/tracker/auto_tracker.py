@@ -28,12 +28,15 @@ def emulator_save_root(path):
 
 
 def port_appdata_names(root):
-    """Names of the %APPDATA% folders a PC port may keep its saves in: its exe's, then the known ports'."""
+    """Names of the %APPDATA% folders a PC port may keep its saves in: its exe's, then the known ports'.
+
+    Both spellings are kept (``longshot`` from the exe, ``Longshot`` as the port writes it): they
+    are one folder on Windows (find_save_slots merges them) but two on case-sensitive systems."""
     exe = port_exe(root) if root.is_dir() else None
     names = [exe.stem] if exe else []
     for known in KNOWN_EXES:
         name = Path(known).stem.capitalize()
-        if name.lower() not in (n.lower() for n in names):
+        if name not in names:
             names.append(name)
     return names
 
