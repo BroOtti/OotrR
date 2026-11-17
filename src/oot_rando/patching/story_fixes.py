@@ -21,13 +21,27 @@ edit of one resource, checked by re-reading it (Discord reports of 15/11):
   Malon (the Weird Egg) was hidden and the sleeping Talon stayed: no egg, no Zelda.
   Malon now only comes back after Talon's wake-up scene (``Dm_HrlCastle_0020``);
   before it the flag is cleared, which also repairs a save already in that state.
-* **Sheik at the Master Sword.** In the Temple of Time (``Market_Adult_Static``),
-  adult Sheik waits in front of the pedestal, so Link could not put the sword back
-  before the Forest Temple (``SageOfForest``) was finished. He now only appears once
-  that quest is complete (his talk is hints only: no quest step depends on it).
+* **Sheik at the Master Sword: withdrawn.** Seeds up to 0.6.5 hid the Temple of Time
+  Sheik until the Forest Temple was finished. Every Temple of Time scene with him
+  (first arrival as adult, Prelude of Light...) then played without him, and the sword
+  still could not be put back (Discord 16/11): he was not what blocked it. The
+  pedestal's own logic module was (:func:`pedestal_after_first_adult_arrival`).
 * **Bombchu Bowling.** The alley opened only after Dodongo's Cavern
   (``MiniGame_BombchuBowling/AfterWakeUp`` Event137, ``Get_StoneOfFire_IsCompleted_Exp``):
   it is open from the start, as the logic expects.
+* **Great Fairies.** Zelda's Lullaby on a fountain's Triforce mark
+  (``TriForcePoint/Sub_PlayOcarinaSequence_FairyFountain``) only calls the fairy of
+  Din's Fire (Death Mountain Trail) at once; the five others stay away while
+  ``IsGet.Item_DinFire`` is false (Event8), so with Din's Fire shuffled away they
+  never came. Every fairy now answers the lullaby from the start; the way into
+  each fountain (bombable wall, boulder...) is unchanged.
+* **Great Fairy rewards given once, by the fairy.** On a later visit each fairy
+  only heals Link when ``IsGet.<her vanilla item>`` is true (Din's Fire, magic,
+  Farore's Wind...). That flag follows the item, not the fairy: Din's Fire found in
+  a chest first, the Death Mountain fairy never handed over her shuffled reward.
+  Each fairy now has her own saved flag (``RandoGreatFairy_<name>``), set right
+  before her reward, and every test of her vanilla item in the fountain flows
+  (and in ``TriForcePoint``, the six-fairy count of ``Meet_GreatFairy``) reads it.
 
 Bool switches: case 0 = true, case 1 = false (as the vanilla flows). Not validated in game.
 """
@@ -39,6 +53,29 @@ FIRE_STONE_FLOW = 'Event/EventFlow/Get_StoneOfFire.bfevfl.zs'
 DARUNIA_GIFT_FLOW = 'Event/EventFlow/Dm_Goron_0030.bfevfl.zs'
 EPONA_FLOW = 'Event/EventFlow/SubEvent_GetEponaSong.bfevfl.zs'
 BOWLING_FLOW = 'Event/EventFlow/MiniGame_BombchuBowling.bfevfl.zs'
+FAIRY_CALL_FLOW = 'Event/EventFlow/TriForcePoint.bfevfl.zs'
+FAIRY_CALL_GATE = 'IsGet.Item_DinFire'
+# Great Fairy flows: (fountain, reward event, vanilla pouch actor).
+GREAT_FAIRIES = (
+    ('Din', 'Event212', 'Item_DinFire'), ('Power', 'Event141', 'Item_FairyBless_MP'),
+    ('Frore', 'Event174', 'Item_FaroreWind'), ('Nayru', 'Event163', 'Item_NayruLove'),
+    ('Wisdom', 'Event144', 'Item_FairyBless_MPDouble'), ('Courage', 'Event144', 'Item_FairyBless_DefenseDouble'),
+)
+GREAT_FAIRY_FLAG_PREFIX = 'RandoGreatFairy_'
+
+
+def fairy_flow(name):
+    return f'Event/EventFlow/Dm_FairyFountain_{name}.bfevfl.zs'
+
+
+def fairy_flags():
+    """``IsGet.<vanilla item>`` → the fairy's own saved flag, for every Great Fairy."""
+    return {'IsGet.' + actor: GREAT_FAIRY_FLAG_PREFIX + name for name, _, actor in GREAT_FAIRIES}
+
+
+def great_fairy_saved_flags():
+    """Bools to register in GameData (false in a new save)."""
+    return {flag: False for flag in fairy_flags().values()}
 TEMPLE_MAP = 'Banc/Market/Market_Adult_Static.bcett.byml.zs'
 
 DARUNIA_GIFT_PLAYED = 'HavePlayedEvent.Dm_Goron_0030'
@@ -249,22 +286,143 @@ def open_bombchu_bowling(raw):
     return result, {'flow': BOWLING_FLOW, 'gate': 'Event137', 'closed_talk': closed.name}
 
 
-def sheik_presence_edits(root):
-    """``patch_strings`` edits: adult Sheik of the Temple of Time after the Forest Temple."""
-    found = [i for i, actor in enumerate(root.get('Actors', [])) if actor.get('Gyaml') == SHEIK]
-    if len(found) != 1:
-        raise ValueError('Temple of Time Sheik not found.')
-    index = found[0]
-    if 'Presence' in root['Actors'][index]:
-        raise ValueError('Temple of Time Sheik already conditioned.')
-    base = ('Actors', index, 'Presence')
-    return [{'path': base + ('FlagName',), 'before': None, 'after': SHEIK_PRESENCE},
-            {'path': base + ('IsCheckLazy',), 'before': None, 'after': False},
-            {'path': base + ('IsNegation',), 'before': None, 'after': False}]
+def open_great_fairies(raw):
+    """``TriForcePoint``: every Great Fairy answers Zelda's Lullaby, Din's Fire held or not.
+
+    Returns (bytes, report)."""
+    from evfl.util import make_index
+    flow = _Chart(raw)
+    gate = flow.event('Event8', 'SwitchEvent')
+    called, refused = _case(gate, 0), _case(gate, 1)
+    ability = flow.event('Event132', 'SwitchEvent')
+    if (_params(gate) != {'GameDataName': FAIRY_CALL_GATE, 'Index': -1} or called is None
+            or refused is None or called is refused or _case(ability, 2) is not called):
+        raise ValueError('Unexpected Great Fairy call gate.')
+    gate.data.cases[1] = make_index(called)
+    result, events = flow.write()
+    cases = events['Event8'].data.cases
+    if cases[0].v.name != called.name or cases[1].v.name != called.name:
+        raise ValueError('Great Fairy call gate not opened.')
+    return result, {'flow': FAIRY_CALL_FLOW, 'gate': 'Event8', 'flag': FAIRY_CALL_GATE,
+                    'refusal': refused.name}
 
 
-# The presence the fix gives the Temple of Time Sheik (as verify reads it back).
+def _read_fairy_flags(flow):
+    """Every Bool query of an item a Great Fairy gives now reads that fairy's flag."""
+    replaced = []
+    for name, event in flow.events.items():
+        data = event.data
+        if type(data).__name__ != 'SwitchEvent' or name.startswith('Rando'):
+            continue
+        if data.actor_query.v.v != 'EventQueryIsGameDataBool':
+            continue
+        params = data.params.data
+        target = fairy_flags().get(params.get('GameDataName'))
+        if target is None:
+            continue
+        if params.get('Index') != -1:
+            raise ValueError('Unexpected Great Fairy item query: ' + name)
+        params['GameDataName'] = target
+        flow.expected[name]['GameDataName'] = target
+        replaced.append(name)
+    return sorted(replaced)
+
+
+def _fairy_reward_flag(name, reward, actor):
+    """``Dm_FairyFountain_<name>``: the fairy's flag set just before her reward; her
+    item tests read it. Returns a fix ``raw -> (bytes, report)``."""
+    def fix(raw):
+        from oot_rando.patching.qol_patches import _predecessors
+        from evfl.util import make_index
+        flow = _Chart(raw)
+        gift = flow.event(reward, 'SubFlowEvent')
+        if (gift.data.res_flowchart_name != 'Dm_SY_GetInEvent'
+                or not gift.data.entry_point_name.startswith('GetInEvent') or 'ActorName' not in _params(gift)):
+            raise ValueError('Unexpected Great Fairy reward: ' + name)
+        links = _predecessors(flow.chart, gift)
+        if not links or any(kind == 'entry' for _, kind, _ in links):
+            raise ValueError('Unexpected Great Fairy reward links: ' + name)
+        flag = GREAT_FAIRY_FLAG_PREFIX + name
+        marker = flow.set_bool('RandoGreatFairyGiven', flag, True, gift)
+        for event, kind, key in links:
+            if kind == 'nxt':
+                event.data.nxt = make_index(marker)
+            elif kind == 'case':
+                event.data.cases[key] = make_index(marker)
+            else:
+                event.data.forks[key] = make_index(marker)
+        replaced = _read_fairy_flags(flow)
+        if not any(flow.events[e].data.params.data['GameDataName'] == flag for e in replaced):
+            raise ValueError('Great Fairy without a test of her own item: ' + name)
+        result, events = flow.write()
+        given = events['RandoGreatFairyGiven']
+        if given.data.nxt.v.name != reward or any(
+                e.data.params is not None and e.data.params.data.get('GameDataName') == 'IsGet.' + actor
+                for e in events.values() if type(e.data).__name__ == 'SwitchEvent'):
+            raise ValueError('Great Fairy flag wrongly chained: ' + name)
+        return result, {'flow': fairy_flow(name), 'flag': flag, 'before': reward, 'queries': replaced}
+    return fix
+
+
+def great_fairy_count(raw):
+    """``TriForcePoint``: the six fairies of ``Check_Complete`` counted by their own
+    flags (plus the opened call gate Event8, both cases alike).
+
+    Applied after ``open_great_fairies`` (same flow). Returns (bytes, report)."""
+    flow = _Chart(raw)
+    replaced = _read_fairy_flags(flow)
+    if replaced != sorted(['Event8', 'Event136', 'Event137', 'Event138', 'Event139', 'Event140', 'Event141']):
+        raise ValueError('Unexpected Great Fairy count in TriForcePoint.')
+    result, _ = flow.write()
+    return result, {'flow': FAIRY_CALL_FLOW, 'queries': replaced}
+
+
+def open_and_count_great_fairies(raw):
+    """``TriForcePoint``: every fairy answers the lullaby; she is counted by her own flag."""
+    opened, report = open_great_fairies(raw)
+    result, counted = great_fairy_count(opened)
+    return result, dict(report, queries=counted['queries'])
+
+
+# The presence seeds up to 0.6.5 gave the Temple of Time Sheik (verify still reads it back).
 SHEIK_PRESENCE_ENTRY = {'FlagName': SHEIK_PRESENCE, 'IsCheckLazy': False, 'IsNegation': False}
+
+
+# --- Zora's River mouth: no invisible wall for adult Link -------------------------
+# Seven ``FldObj_AirWall_Player_GenerateNavMesh`` stand along the fence at the river
+# mouth (ZoraRiver_Adult_Static, x -88..-56, z 5..7, baked in the X3_Z4 static
+# compound), in one SimultaneousGroup with the two ``Obj_BrokenRock_A_01`` boulders.
+# AP lets adult Link hop the fence (``is_adult or has_explosives``); the 0.6.2 logic
+# asked for the boulder broken instead, but the wall still stopped adult Link in game
+# (Discord, 16/11). Each wall now only exists for child Link (``Sequence_IsChildhood``,
+# never true in the adult map), the way Mido's air wall depends on its flag. The child
+# map keeps its walls: child Link still needs explosives, as in AP. Not validated in game.
+ZORA_RIVER_MAP = 'Banc/ZoraRiver/ZoraRiver_Adult_Static.bcett.byml.zs'
+ZORA_RIVER_WALL = 'FldObj_AirWall_Player_GenerateNavMesh'
+ZORA_RIVER_WALLS = (4565321854739336115, 7850395794748438732, 7982339630050931435, 9371429508151251838,
+                    11266001672277786960, 13781426553798151043, 14077907143773739344)
+ZORA_RIVER_WALL_PRESENCE = 'Sequence_IsChildhood'
+ZORA_RIVER_WALL_PRESENCE_ENTRY = {'FlagName': ZORA_RIVER_WALL_PRESENCE, 'IsCheckLazy': False,
+                                  'IsNegation': False}
+
+
+def zora_river_wall_edits(root):
+    """``patch_strings`` edits: the river mouth walls of the adult map, child-only.
+
+    Returns (edits, actor indices)."""
+    found = {actor.get('Hash'): i for i, actor in enumerate(root.get('Actors', []))
+             if actor.get('Hash') in ZORA_RIVER_WALLS}
+    if set(found) != set(ZORA_RIVER_WALLS):
+        raise ValueError("Zora's River mouth walls not found.")
+    edits = []
+    for ident in ZORA_RIVER_WALLS:
+        actor = root['Actors'][found[ident]]
+        if actor.get('Gyaml') != ZORA_RIVER_WALL or 'Presence' in actor:
+            raise ValueError("Unexpected Zora's River mouth wall.")
+        base = ('Actors', found[ident], 'Presence')
+        edits += [{'path': base + (key,), 'before': None, 'after': value}
+                  for key, value in ZORA_RIVER_WALL_PRESENCE_ENTRY.items()]
+    return edits, sorted(found.values())
 
 
 # --- Zelda's escape (DoorOfTime) on the three stones ---------------------------
@@ -275,35 +433,61 @@ SHEIK_PRESENCE_ENTRY = {'FlagName': SHEIK_PRESENCE, 'IsCheckLazy': False, 'IsNeg
 # sets ``DoorOfTime_GetStoneCount`` to 0; the drawbridge area then starts
 # ``HyruleField_DoorOfTime_Escape`` (Step04), then the moat ``..._GetOcarinaOfTime``.
 # The same branch now also runs on the three stones held, checked at every item get
-# (``ActionGuide/ActionGuide``) and at the end of Impa's send-off, once DoorOfTime is
-# past ``Step01`` (send-off done) and not past ``Step2_2`` (before Step03; ``IsAfter``
-# is strict, as Darunia's vanilla gift shows). The native check is skipped once Step03
-# is reached, so a later dungeon end never moves it back (vanilla never runs it there).
-# The send-off moves Get_StoneOfFire to ``KakarikoVillageNpc``: now only while that
-# quest has not started (vanilla order), so Dodongo's Cavern done first stays done.
+# (``ActionGuide/ActionGuide``), at the end of Impa's send-off and at every dungeon end
+# (before the native check), once DoorOfTime is past ``Step01`` (send-off done) and not
+# past ``Step2_2`` (before Step03; ``IsAfter`` is strict, as Darunia's vanilla gift
+# shows). The Hyrule Field drawbridge area (``HyruleField_Child_Prefab_0ce5``) exists
+# only while the current step *is* Step03 (``HoldChallengeCurrentStepCheckOrder``
+# IsEqual): the dungeon quests are never read. The native check is skipped once
+# Step03 is reached, so a later dungeon end never moves it back (vanilla never runs it
+# there). The send-off moves Get_StoneOfFire to ``KakarikoVillageNpc``: now only while
+# that quest has not started (vanilla order), so Dodongo's Cavern done first stays done.
+#
+# 16/11 (Discord, 0.6.4): Zelda still waited for the dungeons. The added Step03 request
+# lacked ``IsWaitEnd`` (the native one, which works at the dungeon end, has it): it now
+# copies the native parameters exactly. Two talks also moved DoorOfTime back to
+# ``Srep2_1_1`` (Zelda's ``AboutWaterStone`` with the Fire quest done, Saria's Song):
+# both are now skipped once DoorOfTime is past ``Step2_1`` (:func:`door_of_time_forward`).
+#
+# 17/11 (Discord, 0.6.5): the send-off check works in game (back-to-back scenes), but
+# (1) the native dungeon-end check still gave Step03 on both dungeon quests without the
+# Goron Ruby: its Step03 branch is now cut (the stones, checked first, are the only way);
+# (2) the last stone got after the send-off (HC Great Fairy) never triggered the
+# escape: the item-get check is not proven, so talking to Zelda checks the stones too
+# (:func:`zelda_escape_on_talk`).
 DOOR_FLOW = 'Event/EventFlow/DoorOfTime.bfevfl.zs'
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
 STONES = ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water')
+STONE_FLAG_PREFIX = 'IsGet.'   # saved when the stone is obtained, however it is given
 DOOR_STARTED = 'DoorOfTime_IsAfter_Step01_Exp'
 DOOR_BEFORE_ESCAPE = 'DoorOfTime_IsAfter_Step2_2_Exp'
 BRIDGE_CLOSED = 'IsHyruleFieldBridgeClose'
 FIRE_QUEST_STARTED = 'Get_StoneOfFire_IsAfter_Ready_Exp'
+# ``DoorOfTime/Event37``, the native Step03 request, parameter for parameter.
+DOOR_STEP03_PARAMS = {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengeProgressUI': False,
+                      'ChallengeName': 'DoorOfTime', 'IsWaitEnd': True, 'StepName': 'Step03'}
 
 
-def _stone_check(flow, prefix, following):
-    """Events: DoorOfTime to Step03 when started, before Step03, and the stones held."""
+def _stone_check(flow, prefix, following, done=...):
+    """Events: DoorOfTime to Step03 when started, before Step03, and the stones held.
+
+    ``following``: where the flow goes on when the check does not pass; ``done``: after
+    Step03 (``following`` by default)."""
     from evfl.util import make_index
+    done = following if done is ... else done
     step = flow.action(prefix + 'Step03', 'ChallengeSystemActor', 'EventExecuteProgressChallengeStep',
-                       {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengeProgressUI': False,
-                        'ChallengeName': 'DoorOfTime', 'StepName': 'Step03'}, None)
+                       DOOR_STEP03_PARAMS, None)
     bridge = flow.set_bool(prefix + 'Bridge', BRIDGE_CLOSED, True, None)
     count = flow.action(prefix + 'Count', 'GameDataActor', 'EventTriggerSetGameDataInt',
-                        {'GameDataName': 'DoorOfTime_GetStoneCount', 'Value': 0, 'Index': -1}, following)
+                        {'GameDataName': 'DoorOfTime_GetStoneCount', 'Value': 0, 'Index': -1}, done)
     step.data.nxt, bridge.data.nxt = make_index(bridge), make_index(count)
     check = step
     for index, stone in reversed(list(enumerate(STONES))):
-        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsExistInPouch', {'Actor': stone, 'Num': 1},
-                            check, following, actor='PouchSystemActor')
+        # The saved ``IsGet.<actor>`` flag: the pouch only answers to pouch names, never
+        # to the actor name (EventQueryIsExistInPouch on Item_Stone_* was always false,
+        # so Zelda still waited for the bosses; 15/11 report).
+        check = flow.switch(f'{prefix}Stone{index}', 'EventQueryIsGameDataBool',
+                            {'GameDataName': STONE_FLAG_PREFIX + stone, 'Index': -1}, check, following)
     before = flow.switch(prefix + 'BeforeEscape', 'EventQueryIsGameDataBoolExp',
                          {'GameDataName': DOOR_BEFORE_ESCAPE}, following, check)
     return flow.switch(prefix + 'Started', 'EventQueryIsGameDataBoolExp',
@@ -337,9 +521,21 @@ def zelda_escape_door_flow(raw):
     native = entries.get('DoorOfTime_CheckStoneNum')
     if native is None or native.main_event.v is None or native.main_event.v.name != 'Event38':
         raise ValueError('Unexpected DoorOfTime stone check.')
+    # Dungeon end: the stones first (Step03 and done), else the native check (vanilla).
+    dungeon_end = _stone_check(flow, 'RandoDungeonEndStones', native.main_event.v, done=None)
     guard = flow.switch('RandoDoorCheckForward', 'EventQueryIsGameDataBoolExp',
-                        {'GameDataName': DOOR_BEFORE_ESCAPE}, None, native.main_event.v)
+                        {'GameDataName': DOOR_BEFORE_ESCAPE}, None, dungeon_end)
     native.main_event = make_index(guard)
+    # Native check with both dungeon quests done (Event39 case true): Step03 (Event37)
+    # only through the stones, already checked above; the dungeons alone no longer
+    # open it (Discord 17/11: escape and Temple of Time without the Goron Ruby).
+    both = flow.event('Event39', 'SwitchEvent')
+    step03 = flow.event('Event37', 'ActionEvent')
+    if (_params(both) != {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'}
+            or getattr(both.data.cases.get(0), 'v', None) is not step03
+            or _params(step03).get('StepName') != 'Step03' or len(_predecessors(flow.chart, step03)) != 1):
+        raise ValueError('Unexpected native DoorOfTime Step03.')
+    del both.data.cases[0]
     # Send-off: Step02 (Event7), then Get_StoneOfFire KakarikoVillageNpc (Event62), end.
     step02, fire = flow.event('Event7', 'ActionEvent'), flow.event('Event62', 'ActionEvent')
     if (_params(step02).get('StepName') != 'Step02' or step02.data.nxt.v is not fire
@@ -354,9 +550,284 @@ def zelda_escape_door_flow(raw):
     result, events = flow.write()
     if (events['Event7'].data.nxt.v.name != 'RandoFireQuestStarted'
             or events['Event62'].data.nxt.v.name != 'RandoSendOffStonesStarted'
-            or events['RandoDoorCheckForward'].data.cases[1].v.name != 'Event38'):
+            or events['RandoDoorCheckForward'].data.cases[1].v.name != 'RandoDungeonEndStonesStarted'
+            or events['RandoDungeonEndStonesStarted'].data.cases[1].v.name != 'Event38'
+            or events['RandoDungeonEndStonesCount'].data.nxt.v is not None):
         raise ValueError('DoorOfTime stone checks wrongly chained.')
-    return result, {'flow': DOOR_FLOW, 'native_guard': 'RandoDoorCheckForward', 'send_off': 'RandoSendOffStones'}
+    return result, {'flow': DOOR_FLOW, 'native_guard': 'RandoDoorCheckForward', 'send_off': 'RandoSendOffStones',
+                    'dungeon_end': 'RandoDungeonEndStones'}
+
+
+def zelda_escape_on_talk(raw):
+    """``Npc_Hylia_Zelda_Child/Talk``: the stone check first, at every talk to Zelda.
+
+    17/11 (Discord, 0.6.5): the last stone got after the send-off (from a Great Fairy)
+    never moved DoorOfTime to Step03; the item-get check (``ActionGuide``, a sub-flow
+    of the get flows) is not validated in game, the send-off check (a main flow) is.
+    Talking to Zelda again now runs the same check. Returns (bytes, report)."""
+    from evfl.util import make_index
+    flow = _Chart(raw)
+    entry = {e.name: e for e in flow.chart.entry_points}.get('Talk')
+    if entry is None or entry.main_event.v is None or entry.main_event.v.name != 'Event99':
+        raise ValueError('Unexpected Zelda talk flow.')
+    first = entry.main_event.v
+    entry.main_event = make_index(_stone_check(flow, 'RandoTalkStones', first))
+    result, events = flow.write()
+    start = {e.name: e for e in _flow(result).flowchart.entry_points}['Talk'].main_event.v
+    if start.name != 'RandoTalkStonesStarted' or events['RandoTalkStonesCount'].data.nxt.v.name != first.name:
+        raise ValueError('Stone check wrongly chained in the Zelda talk.')
+    return result, {'flow': ZELDA_FLOW, 'start': start.name, 'stones': list(STONES)}
+
+
+# --- Stones in the menu after Gohma ---------------------------------------------
+# ``Dm_Kokiri_0130`` (Deku Tree's death, vanilla Kokiri Emerald) ends with the quest
+# menu presentation of the first stone (Event56 wait -> Event52
+# ``UISystemActor.EventOpenPerformanceImportantMenu``), the only stone scene with it.
+# With stones found before Gohma and her reward shuffled, it showed the three stones
+# on their pedestal, then none (Discord 15/11, "Spiritual Stones disappeared"; the save
+# still held them). The presentation is now skipped. Not validated in game.
+GOHMA_STONE_FLOW = 'Event/EventFlow/Dm_Kokiri_0130.bfevfl.zs'
+
+
+def skip_stone_menu_presentation(raw):
+    """``Dm_Kokiri_0130``: no quest menu presentation at the end. Returns (bytes, report)."""
+    from oot_rando.patching.qol_patches import _predecessors
+    flow = _Chart(raw)
+    wait, menu = flow.event('Event56', 'ActionEvent'), flow.event('Event52', 'ActionEvent')
+    if (menu.data.actor_action.v.v != 'EventOpenPerformanceImportantMenu' or wait.data.nxt.v is not menu
+            or getattr(menu.data.nxt, 'v', None) is not None or len(_predecessors(flow.chart, menu)) != 1):
+        raise ValueError('Unexpected Gohma stone scene end (already patched?).')
+    wait.data.nxt.v = None
+    result, events = flow.write()
+    if getattr(events['Event56'].data.nxt, 'v', None) is not None:
+        raise ValueError('Stone menu presentation still chained.')
+    return result, {'flow': GOHMA_STONE_FLOW, 'skipped': 'Event52'}
+
+
+# --- Master Sword pedestal: back to child before the Forest Temple --------------
+# The adult pedestal's put-in prompt (``Obj_TimeTemple_MasterSword_A_01``) lives in
+# ``Market_Adult_Prefab_89da``: node 0 reads ``SageOfForest_IsCompleted_Exp``, node 1
+# inverts it into the attention's ``Logic_Delete``. Link could not go back to child
+# until the Forest Temple was finished (Discord 15-16/11, medallion not enough), while
+# the logic gives free time travel. Node 0 now reads ``AllSage_IsAfter_Ready_Exp``,
+# true from the first adult arrival (``Market_Adult_AllSage_Start``, AllSage Step01).
+# The Area before the pedestal is the Prelude of Light trigger (``_edc2``, same flag):
+# it is kept. Raw file (not compressed), rewritten byte for byte but this string.
+PEDESTAL_MODULE = 'Logic/Market_Adult_Prefab_89da.logic.module.ainb'
+PEDESTAL_BEFORE = 'SageOfForest_IsCompleted_Exp'
+PEDESTAL_GATE = 'AllSage_IsAfter_Ready_Exp'
+
+
+def pedestal_after_first_adult_arrival(raw):
+    """``Market_Adult_Prefab_89da``: the put-in prompt from the first adult arrival on.
+
+    Returns (bytes, report)."""
+    import copy
+    import ainb
+    from oot_rando.patching.ap_mailbox import ainb_to_binary
+    document = ainb.AINB.from_binary(raw).as_dict()
+    nodes = document['Nodes']
+    if (len(nodes) != 4 or [n['Name'] for n in nodes] != ['HoldGameDataGetBoolExpSimple', 'InvBool.module',
+                                                          'ActorLogicAttentionActor', 'ActorLogicEventRequestActor']
+            or ainb_to_binary(copy.deepcopy(document)) != raw):
+        raise ValueError('Unexpected Master Sword pedestal logic module.')
+    gate = nodes[0]['Parameters']['Inputs']['String'][0]
+    delete = next(p for p in nodes[2]['Parameters']['Inputs']['Bool'] if p['Name'] == 'Logic_Delete')
+    if (gate['Name'], gate['Default Value']) != ('GameDataNameBoolExp', PEDESTAL_BEFORE) or delete['Node Index'] != 1:
+        raise ValueError('Unexpected Master Sword pedestal gate (already patched?).')
+    expected = copy.deepcopy(document)
+    expected['Nodes'][0]['Parameters']['Inputs']['String'][0]['Default Value'] = PEDESTAL_GATE
+    result = ainb_to_binary(copy.deepcopy(expected))
+    if ainb.AINB.from_binary(result).as_dict() != expected:
+        raise ValueError('Master Sword pedestal gate wrongly rewritten.')
+    return result, {'module': PEDESTAL_MODULE, 'before': PEDESTAL_BEFORE, 'gate': PEDESTAL_GATE}
+
+
+# --- Dampé's race: the first race until its prize is opened --------------------
+# ``MiniGame_DampeRace`` tells the first race (Hookshot prize, challenge step
+# ``Playing``) from the second one (``PlayingSecond``, heart piece) by the Hookshot
+# held: ``CheckIsGet Item_Hookshot`` at the start (Event129), pouch Hookshot/Longshot
+# in Dampé's talks and balloons, the timer/record steps and the clear count at the finish. With the Hookshot found elsewhere the
+# first race and its chest were skipped forever (Discord 17/11). The first prize chest
+# (Event201, state ``OpenedHookShot``) now sets a saved flag, and every one of these
+# checks reads that flag instead.
+DAMPE_FLOW = 'Event/EventFlow/MiniGame_DampeRace.bfevfl.zs'
+DAMPE_FIRST_PRIZE = 'RandoDampeFirstPrize'
+DAMPE_RESULT_SWITCH = 'Event275'      # Result: IntBranch on MiniGame_DampeRace_ClearCount
+DAMPE_HOOKSHOT_RESULT = 'Event277'    # its case 0: Dampé's talk, then the Hookshot chest
+DAMPE_HOOKSHOT_CHECKS = {
+    'Event129': ('GameDataActor', 'EventQueryCheckIsGet', {'ActorName': 'Item_Hookshot'}),
+    'Event18': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Num': 1, 'Actor': 'Item_Longshot'}),
+    'Event0': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+    'Event61': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+    'Event98': ('GameDataActor', 'EventQueryCheckIsGet', {'ActorName': 'Item_Hookshot'}),
+    'Event157': ('GameDataActor', 'EventQueryCheckIsGet', {'ActorName': 'Item_Hookshot'}),
+    'Event443': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+    # Race finish: with the Hookshot held, ``MiniGame_DampeRace_Clear`` (ClearCount + 1)
+    # ran before ``Result``, so the first race already counted as cleared and showed
+    # the heart piece / rupee chest instead of the Hookshot one (in game, 17/11).
+    'Event442': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+    # Dampé's talk during a race and his balloon near the start.
+    'Event444': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+    'Event262': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Num': 1, 'Actor': 'Item_Longshot'}),
+    'Event260': ('PouchSystemActor', 'EventQueryIsExistInPouch', {'Actor': 'Item_Hookshot', 'Num': 1}),
+}
+
+
+def dampe_saved_flags():
+    """Bools to register in GameData (false in a new save)."""
+    return {DAMPE_FIRST_PRIZE: False}
+
+
+def dampe_first_race_until_prize(raw):
+    """``MiniGame_DampeRace``: race order by the first prize opened, not the Hookshot held.
+
+    Returns (bytes, report)."""
+    from evfl.util import make_index
+    from oot_rando.patching.qol_patches import _predecessors
+    flow = _Chart(raw)
+    opened = flow.event('Event201', 'ActionEvent')
+    if (_params(opened) != {'Index': -1, 'GameDataName': 'Minigame_DampeRace_TreasureBoxState',
+                            'Value': 'OpenedHookShot'} or getattr(opened.data.nxt, 'v', None) is None):
+        raise ValueError("Unexpected Dampé race prize step.")
+    replaced = {}
+    for name, (actor, query, params) in DAMPE_HOOKSHOT_CHECKS.items():
+        check = flow.event(name, 'SwitchEvent')
+        if (str(check.data.actor.v.identifier) != actor or check.data.actor_query.v.v != query
+                or _params(check) != params):
+            raise ValueError(f"Unexpected Dampé race Hookshot check {name} (already patched?).")
+        cases = {key: case.v for key, case in check.data.cases.items()}
+        new = flow.switch('RandoDampe' + name, 'EventQueryIsGameDataBool',
+                          {'GameDataName': DAMPE_FIRST_PRIZE, 'Index': -1}, cases.get(0), cases.get(1))
+        links = _predecessors(flow.chart, check)
+        if not links:
+            raise ValueError(f'Dampé race check {name} unreached.')
+        for owner, kind, key in links:
+            if kind == 'nxt':
+                owner.data.nxt = make_index(new)
+            elif kind == 'case':
+                owner.data.cases[key] = make_index(new)
+            elif kind == 'entry':
+                owner.main_event = make_index(new)
+            else:
+                raise ValueError(f'Unexpected link to Dampé race check {name}.')
+        replaced[name] = (cases, len(links))
+    # Event18/Event262 (Longshot) led to Event0/Event260 (Hookshot): their copies lead to the copies.
+    # ``Result`` picks the chest by ``ClearCount`` (0: Hookshot chest). A save whose
+    # first race already counted as cleared (Event442 before this fix) keeps the
+    # Hookshot chest: until the first prize is opened, Result takes the ClearCount 0 path.
+    result_switch = flow.event(DAMPE_RESULT_SWITCH, 'SwitchEvent')
+    if (_params(result_switch) != {'GameDataName': 'MiniGame_DampeRace_ClearCount'}
+            or result_switch.data.cases[0].v.name != DAMPE_HOOKSHOT_RESULT):
+        raise ValueError('Unexpected Dampé race result step.')
+    first_result = result_switch.data.cases[0].v
+    gate = flow.switch('RandoDampeResult', 'EventQueryIsGameDataBool',
+                       {'GameDataName': DAMPE_FIRST_PRIZE, 'Index': -1}, result_switch, first_result)
+    result_links = _predecessors(flow.chart, result_switch)
+    for owner, kind, key in result_links:
+        if owner is gate:
+            continue
+        if kind == 'nxt':
+            owner.data.nxt = make_index(gate)
+        elif kind == 'case':
+            owner.data.cases[key] = make_index(gate)
+        elif kind == 'entry':
+            owner.main_event = make_index(gate)
+        else:
+            raise ValueError('Unexpected link to the Dampé race result step.')
+    mark = flow.set_bool('RandoDampeFirstPrizeOpened', DAMPE_FIRST_PRIZE, True, opened.data.nxt.v)
+    opened.data.nxt = make_index(mark)
+    result, events = flow.write()
+    from oot_rando.patching.event_patch import _flow
+    entries = {}
+    for entry in _flow(result).flowchart.entry_points:
+        if entry.main_event.v is not None:
+            entries[entry.main_event.v.name] = entries.get(entry.main_event.v.name, 0) + 1
+    for name, (cases, count) in replaced.items():
+        new = events['RandoDampe' + name]
+        got = {key: case.v.name for key, case in new.data.cases.items()}
+        want = {key: ('RandoDampe' + target.name if target.name in DAMPE_HOOKSHOT_CHECKS else target.name)
+                for key, target in cases.items() if target is not None}
+        refs = sum(1 for e in events.values() for x in [getattr(e.data, 'nxt', None)] if x is not None and x.v is new)
+        refs += sum(1 for e in events.values() for c in (getattr(e.data, 'cases', None) or {}).values() if c.v is new)
+        refs += entries.get(new.name, 0)
+        if got != want or refs != count:
+            raise ValueError(f'Dampé race check {name} wrongly rewired.')
+    if events['Event201'].data.nxt.v.name != 'RandoDampeFirstPrizeOpened':
+        raise ValueError('Dampé race prize flag not chained.')
+    gate = events['RandoDampeResult']
+    if ({k: c.v.name for k, c in gate.data.cases.items()} != {0: DAMPE_RESULT_SWITCH, 1: DAMPE_HOOKSHOT_RESULT}
+            or entries.get(DAMPE_RESULT_SWITCH) or entries.get('RandoDampeResult') != len(
+                [1 for owner, kind, _ in result_links if kind == 'entry'])):
+        raise ValueError('Dampé race result step wrongly gated.')
+    return result, {'flow': DAMPE_FLOW, 'flag': DAMPE_FIRST_PRIZE, 'checks': sorted(replaced)}
+
+
+# --- Kokiri Forest exit guard (closed forest) -----------------------------------
+# ``Npc_Kokiri_007_Child`` blocks the bridge while ``KOKIRI_EXIT_WALL`` (saved, also
+# the Presence of its air wall) is true. Only his ``Get_StoneOfForest_IsCompleted_Exp_Talk``
+# (schedule state ``Get_StoneOfForest_IsCompleted_Exp``) clears it (Event42). His
+# AIScheduleParam ends with ``Goto_HyruleCastle_IsCompleted_Exp`` (talk
+# ``KokiriForest_Npc_Kokiri_007_Child_BlockEnd_Talk``), the last true state winning:
+# Zelda met before the Deku Tree, which vanilla never allows, that state hid the
+# wall-lowering talk forever (Discord 16/11, "Can't exit Kokiri Forest"; same trap as
+# Mido, issue #16). The end talk now runs the wall-lowering talk first while the wall
+# still stands and the Deku Tree is done; this also repairs a save already stuck.
+KOKIRI_EXIT_FLOW = 'Event/EventFlow/Npc_Kokiri_007_Child.bfevfl.zs'
+KOKIRI_EXIT_WALL = 'KokiriForest_Npc_Kokiri_007_Child_Blocker_00'
+DEKU_TREE_DONE = 'Get_StoneOfForest_IsCompleted_Exp'
+
+
+def kokiri_exit_guard_steps_aside(raw):
+    """``Npc_Kokiri_007_Child``: the end talk lowers a wall still up after the Deku Tree.
+
+    Returns (bytes, report)."""
+    from evfl.util import make_index
+    flow = _Chart(raw)
+    entries = {e.name: e for e in flow.chart.entry_points}
+    end = entries.get('KokiriForest_Npc_Kokiri_007_Child_BlockEnd_Talk')
+    lower = entries.get('Get_StoneOfForest_IsCompleted_Exp_Talk')
+    clear = flow.event('Event42', 'ActionEvent')
+    if (end is None or lower is None or getattr(end.main_event, 'v', None) is None
+            or end.main_event.v.name != 'Event60' or getattr(lower.main_event, 'v', None) is None
+            or lower.main_event.v.name != 'Event10'
+            or _params(clear) != {'Index': -1, 'GameDataName': KOKIRI_EXIT_WALL, 'Value': False}):
+        raise ValueError('Unexpected Kokiri exit guard flow.')
+    usual, talk = end.main_event.v, lower.main_event.v
+    done = flow.switch('RandoExitDekuTreeDone', 'EventQueryIsGameDataBoolExp',
+                       {'GameDataName': DEKU_TREE_DONE}, talk, usual)
+    wall = flow.switch('RandoExitWallUp', 'EventQueryIsGameDataBool',
+                       {'GameDataName': KOKIRI_EXIT_WALL, 'Index': -1}, done, usual)
+    end.main_event = make_index(wall)
+    result, events = flow.write()
+    start = {e.name: e for e in _flow(result).flowchart.entry_points}[end.name].main_event.v
+    up, deku = events['RandoExitWallUp'].data.cases, events['RandoExitDekuTreeDone'].data.cases
+    if (start.name != 'RandoExitWallUp' or up[0].v.name != 'RandoExitDekuTreeDone' or up[1].v.name != 'Event60'
+            or deku[0].v.name != 'Event10' or deku[1].v.name != 'Event60'):
+        raise ValueError('Kokiri exit guard check wrongly chained.')
+    return result, {'flow': KOKIRI_EXIT_FLOW, 'start': start.name, 'flag': KOKIRI_EXIT_WALL}
+
+
+# DoorOfTime steps (``RSDB/Challenge``, checked against the table at generation).
+DOOR_STEPS = ('Ready', 'Step01', 'Step02', 'Step2_1', 'Srep2_1_1', 'Step2_2', 'Step03', 'Step04', 'Step05', 'Step06')
+ZELDA_FLOW = 'Event/EventFlow/Npc_Hylia_Zelda_Child.bfevfl.zs'
+SARIA_SONG_FLOW = 'Event/EventFlow/Dm_SY_Ocarina_SariaSong.bfevfl.zs'
+DOOR_BACK_REQUESTS = (ZELDA_FLOW, SARIA_SONG_FLOW)
+DOOR_PAST_SREP = 'DoorOfTime_IsAfter_Step2_1_Exp'   # strict: Srep2_1_1 or later
+
+
+def door_of_time_forward(raw):
+    """``Srep2_1_1`` requests skipped once DoorOfTime is past Step2_1 (never backwards).
+
+    Zelda's talk about the Water stone (Fire quest done) and Saria's Song request it
+    without checking where DoorOfTime stands: with the stones found first it went back
+    from Step03 and the drawbridge area disappeared. Returns (bytes, report)."""
+    from oot_rando.patching import quest_guard
+    result, report = quest_guard.guard_requests(raw, 'DoorOfTime', {'DoorOfTime': list(DOOR_STEPS)},
+                                                ('Srep2_1_1',), DOOR_PAST_SREP, prefix='RandoDoorForward_')
+    if not report['guarded']:
+        raise ValueError('No Srep2_1_1 request to guard.')
+    return result, report
 
 
 # --- The clock before Zelda ------------------------------------------------------
@@ -375,10 +846,87 @@ def story_start_values():
     return {CLOCK_FLAG: True}
 
 
+# --- First arrivals never move a quest back --------------------------------------
+# An entrance plays its area presentation the first time it is used
+# (``FieldAndDungeonEntranceEventRequestActor``: ``InitEventName`` while ``InitEventFlag``
+# is false), and some of these scenes request a quest step without checking where the
+# quest stands. Vanilla always uses that entrance first; a seed can reach the area
+# another way, so the scene comes later and pulls the quest back (Discord 15/11: King
+# Zora back in front of the fountain). Scan of the entrances of 1.1.1 (the others check
+# the quest before their request):
+#
+# * Zora River -> Zora's Domain (``Goto_ZoraDomain``, ``HavePlayedEvent.Dm_Zora_0000``):
+#   ``Get_StoneOfWater`` to ``Step03`` / ``Step03_Impa``. Zora's Domain reached first
+#   from Lake Hylia, Ruto's Letter delivered (``Step07``): King Zora went back to his
+#   throne in front of the fountain, the letter already spent.
+# * Kakariko -> Death Mountain Trail (``DeathMountainTrail_Arrive``,
+#   ``Get_StoneOfFire_DeathMtTrailIn``): ``Get_StoneOfFire`` to ``DeathMtTrailNpc``, even
+#   once complete (``IsIgnoreCompletedChallenge`` false). The trail reached first from
+#   Goron City (Lost Woods shortcut) or the crater.
+# * Haunted Wasteland -> Desert Colossus (``FromWasteland_ArriveColossus``):
+#   ``SageOfSpirit`` to ``Step04``. The Colossus reached first with the Requiem.
+# * Hyrule Field / castle -> Market (``Goto_HyruleCastle_EntryMarket``):
+#   ``Goto_HyruleCastle`` to ``Step02_01``, even once complete.
+#
+# Each request is now skipped once the quest is past its step or complete (one guard
+# per expression, :func:`oot_rando.patching.quest_guard.guard_requests`). The scenes
+# themselves still play. Not validated in game.
+ARRIVE_FLOW = 'Event/EventFlow/Dm_SY_BancChangeArrive.bfevfl.zs'
+CASTLE_FLOW = 'Event/EventFlow/Goto_HyruleCastle.bfevfl.zs'
+FIRST_ARRIVAL_REQUESTS = {
+    ARRIVE_FLOW: (('Get_StoneOfWater', ('Step03', 'Step03_Impa')), ('SageOfSpirit', ('Step04',))),
+    FIRE_STONE_FLOW: (('Get_StoneOfFire', ('DeathMtTrailNpc',)),),
+    CASTLE_FLOW: (('Goto_HyruleCastle', ('Step02_01',)),),
+}
+FORWARD_PREFIX = 'RandoArrivalForward'
+
+
+def first_arrival_forward(path, raw, steps):
+    """``raw`` (the flow at ``path``) where its first-arrival requests never move a quest back.
+
+    ``steps``: the challenge table (:func:`oot_rando.patching.quest_guard.challenge_steps`).
+    Returns (bytes, [(event, step, expression)])."""
+    from oot_rando.patching import quest_guard
+    guarded, index = [], 0
+    for challenge, wanted in FIRST_ARRIVAL_REQUESTS[path]:
+        guards = [(step, quest_guard.after_expression(challenge, step)) for step in wanted]
+        guards.append((None, f'{challenge}_IsCompleted_Exp'))
+        for step, expression in guards:
+            raw, report = quest_guard.guard_requests(raw, challenge, steps, wanted if step is None else (step,),
+                                                     expression, prefix=f'{FORWARD_PREFIX}{index}_')
+            index += 1
+            if not report['guarded']:
+                raise ValueError(f'First arrival guard: no {challenge} request to guard in {path}')
+            guarded += [(event, name, expression) for event, name, _ in report['guarded']]
+    return raw, guarded
+
+
+def keep_first_arrivals_forward(read_flow, challenges_raw):
+    """Every flow of :data:`FIRST_ARRIVAL_REQUESTS`. ``read_flow(path)``: its current bytes.
+    Returns ({path: bytes}, {path: guarded})."""
+    from oot_rando.patching import quest_guard
+    steps = quest_guard.challenge_steps(challenges_raw)
+    if tuple(steps.get('DoorOfTime', ())) != DOOR_STEPS:
+        raise ValueError('Unexpected DoorOfTime steps in the challenge table.')
+    files, report = {}, {}
+    for path in FIRST_ARRIVAL_REQUESTS:
+        files[path], report[path] = first_arrival_forward(path, read_flow(path), steps)
+    return files, report
+
+
 FLOW_FIXES = (
     (FIRE_STONE_FLOW, 'darunia_gift', darunia_gift_after_dungeon),
     (DARUNIA_GIFT_FLOW, 'fire_quest_forward', keep_fire_quest_forward),
     (EPONA_FLOW, 'second_malon', second_malon_after_talon),
     (BOWLING_FLOW, 'bombchu_bowling', open_bombchu_bowling),
+    (FAIRY_CALL_FLOW, 'great_fairies', open_and_count_great_fairies),
+    *((fairy_flow(name), 'great_fairy_' + name.lower(), _fairy_reward_flag(name, reward, actor))
+      for name, reward, actor in GREAT_FAIRIES),
     (DOOR_FLOW, 'zelda_escape', zelda_escape_door_flow),
+    (ZELDA_FLOW, 'zelda_talk_forward', door_of_time_forward),
+    (ZELDA_FLOW, 'zelda_talk_stones', zelda_escape_on_talk),
+    (GOHMA_STONE_FLOW, 'gohma_stone_menu', skip_stone_menu_presentation),
+    (KOKIRI_EXIT_FLOW, 'kokiri_exit_guard', kokiri_exit_guard_steps_aside),
+    (DAMPE_FLOW, 'dampe_first_race', dampe_first_race_until_prize),
+    (SARIA_SONG_FLOW, 'saria_song_forward', door_of_time_forward),
 )

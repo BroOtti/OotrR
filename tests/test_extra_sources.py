@@ -81,6 +81,23 @@ class Units(unittest.TestCase):
         self.assertEqual(entries['KokiriForest#free#8']['reason'], 'conditional_presence')
         self.assertEqual(entries['KokiriForest#free#2']['vanilla'], 'Piece of Heart')
 
+    def test_rutos_letter_is_a_quest_reward(self):
+        maps = {'Banc/HyruleField/HyruleField_Child_Static.bcett.byml.zs': {'root': {'Actors': [
+            {'Gyaml': 'Obj_Bottle_Letter', 'Hash': 9, 'Translate': [-151.6, 125.0, 461.0]}]}}}
+        entry = scan_map_sources(maps)['HyruleField#letter#9']
+        self.assertEqual((entry['source'], entry['form'], entry['kind'], entry['ap'], entry['vanilla']),
+                         ('quest', 'world', 'exact', ['LH Underwater Item'], 'Rutos Letter'))
+        self.assertEqual(entry['variants'][0]['field'], 'Gyaml')
+        self.assertIsNone(entry['reason'])
+        self.assertNotIn('LH Underwater Item', EXCLUDED_NPC_LOCATIONS)
+        self.assertTrue(source_in_scope(entry, enabled_sources(
+            rando_options.validate({'shuffle_quest_rewards': True}, supported_only=True))))
+        self.assertFalse(source_in_scope(entry, enabled_sources(
+            rando_options.validate({}, supported_only=True))))
+        from oot_rando.game.remake_world import item_actor
+        self.assertEqual(item_actor('Rutos Letter', ''), 'Item_Bottle_Letter')
+        self.assertEqual(form_actor('Item_Bottle_Letter', 'world'), 'Obj_Rando_Item_Bottle_Letter')
+
     def test_empty_rocks_receive_a_drop(self):
         maps = {'Banc/HyruleField/HyruleField_Child_Static.bcett.byml.zs': {'root': {'Actors': [
             {'Gyaml': 'Obj_LiftRock_A_01', 'Hash': 1},
@@ -275,10 +292,35 @@ class Integration(unittest.TestCase):
             for p in adult:
                 self.assertGreaterEqual(p['sphere'], adult_from, (seed, p['id'], p['item']))
 
+    def test_shops_counted_one_by_one(self):
+        # Discord 16/11: the Market's three shops shared the count of one shop.
+        from oot_rando.game.extra_sources import shop_groups
+        shops = shop_groups({g: e for g, e in self.extra.items() if e['source'] == 'shop' and not e['reason']})
+        per_folder = Counter(key.split('#', 1)[0] for key in set(shops.values()))
+        self.assertEqual(per_folder['Market'], 3)              # bazaar, potion shop, bombchu shop
+        self.assertEqual(per_folder['KakarikoVillage'], 2)     # bazaar, potion shop
+        for folder in ('KokiriForest', 'GoronCity', 'ZoraDomain'):
+            self.assertEqual(per_folder[folder], 1, folder)
+        self.assertTrue(all(n == 8 for n in Counter(shops.values()).values()), Counter(shops.values()))
+        options, result = self.plan({'shopsanity': '8'}, 'shops8')
+        placed = Counter(shops[p['id']] for p in result['placements'] if p['source'] == 'shop')
+        self.assertEqual(set(placed), set(shops.values()))      # every shop, the potion shops too
+        # One copy of each purchase the logic uses stays on sale (11 on 17/11: shields, tunics,
+        # bottle contents, one bombchu pack, nuts, sticks); every other slot is shuffled.
+        kept = sorted(self.extra[g]['vanilla'] for g in shops if g not in {p['id'] for p in result['placements']})
+        self.assertEqual(sum('Bombchu' in k for k in kept), 1, kept)      # any pack does (has_bombchus)
+        self.assertEqual(sum('Deku Nut' in k for k in kept), 1, kept)
+        self.assertLessEqual(len(kept), 11, kept)
+        options, result = self.plan({'shopsanity': 'all'}, 'shops8')
+        self.assertEqual(sum(p['source'] == 'shop' for p in result['placements']), len(shops))
+
     def test_shopsanity_keeps_logic_purchases(self):
         options, result = self.plan({'shopsanity': '4'}, 'shops')
-        per_shop = Counter(p['folder'] for p in result['placements'] if p['source'] == 'shop')
-        self.assertTrue(per_shop and all(count <= 4 for count in per_shop.values()), per_shop)
+        from oot_rando.game.extra_sources import shop_groups
+        shops = shop_groups({g: e for g, e in self.extra.items() if e['source'] == 'shop'})
+        per_shop = Counter(shops[p['id']] for p in result['placements'] if p['source'] == 'shop')
+        self.assertEqual(set(per_shop), set(shops.values()))
+        self.assertTrue(all(count <= 4 for count in per_shop.values()), per_shop)
         shuffled = {p['id'] for p in result['placements']}
         referenced_kept = Counter(e['vanilla'] for gid, e in self.extra.items()
                                   if e['source'] == 'shop' and gid not in shuffled and not e['reason'])

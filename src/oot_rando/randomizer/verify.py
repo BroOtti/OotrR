@@ -200,7 +200,7 @@ def verify(nup_path, seed_dir):
     hooks = hook_sites(token_sources, produced_flow, covered=manifest.get('skips', {}).get('gift_get', {}))
     if hooks != progressive_skip.get('hooks', {}):
         raise ValueError('Progressive token gifts differ from the spoiler.')
-    soul_actors = set()
+    soul_actors, soul_expressions_seen = set(), set()
     window_context = [None, None]
     for path in sorted(manifest['files']):
         if path.startswith('Event/EventFlow/'):
@@ -272,6 +272,12 @@ def verify(nup_path, seed_dir):
                 if path == fixed_path and key in (skips.get('story_fixes') or {}):
                     original = fix(original)[0]
                     report['story_fixes'] = report.get('story_fixes', 0) + 1
+            if (path in story_fixes.FIRST_ARRIVAL_REQUESTS
+                    and path in ((skips.get('story_fixes') or {}).get('first_arrivals') or {})):
+                from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
+                original = story_fixes.first_arrival_forward(
+                    path, original, challenge_steps(decompress(nup.read(members[CHALLENGES]), d)))[0]
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             gifts = skips.get('gift_get', {})
             if path in gifts:
                 # Cutscene whose own add is bypassed: never reached any more.
@@ -427,24 +433,55 @@ def verify(nup_path, seed_dir):
                 a2['Presence'] = {'FlagName': record['flag'], 'IsNegation': True, 'IsCheckLazy': _seed_lazy(b2)}
             for field, actor in edits.get(index, {}).items():
                 if field == 'Gyaml':
+                    from oot_rando.game.item_forms import ground_lift, lifted, world_scale
+                    height = ground_lift(a2.get('Gyaml'), actor)
+                    if height:
+                        a2['Translate'][1] = lifted(a2['Translate'][1], height)
+                    scale = world_scale(actor)
+                    if scale != 1.0 and a2.get('Gyaml') != actor:
+                        a2['Scale'] = [lifted(scale, 0.0)] * 3
                     a2['Gyaml'] = actor
                 else:
                     a2.setdefault('Dynamic', {})[field] = actor
                 report['rewards'] += 1
             sheik_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('sheik')
             if sheik_fix and path == sheik_fix['map'] and index == sheik_fix['actor'] and 'Presence' not in a2:
-                # Temple of Time Sheik only after the Forest Temple (patching/story_fixes.py).
+                # Seeds up to 0.6.5: Temple of Time Sheik only after the Forest Temple (fix withdrawn).
                 from oot_rando.patching.story_fixes import SHEIK, SHEIK_PRESENCE_ENTRY
                 if a2.get('Gyaml') != SHEIK or sheik_fix['presence'] != SHEIK_PRESENCE_ENTRY['FlagName']:
                     raise ValueError('Unexpected Sheik presence: ' + path)
                 a2['Presence'] = dict(SHEIK_PRESENCE_ENTRY)
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
+            wall_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('zora_river_wall')
+            if wall_fix and path == wall_fix['map'] and index in wall_fix['actors'] and 'Presence' not in a2:
+                # Zora's River mouth walls only for child Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (ZORA_RIVER_WALL, ZORA_RIVER_WALLS,
+                                                            ZORA_RIVER_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != ZORA_RIVER_WALL or a2.get('Hash') not in ZORA_RIVER_WALLS
+                        or wall_fix['presence'] != ZORA_RIVER_WALL_PRESENCE_ENTRY['FlagName']):
+                    raise ValueError("Unexpected Zora's River wall presence: " + path)
+                a2['Presence'] = dict(ZORA_RIVER_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')
-                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != {
-                        'FlagName': flag, 'IsNegation': False, 'IsCheckLazy': False}:
+                from oot_rando.patching.soul_adapter import soul_presence
+                key = flag[len(FLAG_PREFIX + 'Item_Soul_'):]
+                if not flag.startswith(FLAG_PREFIX + 'Item_Soul_') or b2['Presence'] != soul_presence(flag, key):
                     raise ValueError('Unexpected presence: ' + path)
                 soul_actors.add(flag[len(FLAG_PREFIX):])
+                a2['Presence'] = b2['Presence']
+                report['presence'] += 1
+            elif 'Presence' in a2 and b2.get('Presence') != a2['Presence']:
+                # An enemy with its own Presence reads "its soul AND that condition".
+                from oot_rando.patching.soul_adapter import EXPRESSION_PREFIX, soul_presence
+                flag = b2.get('Presence', {}).get('FlagName', '')
+                soul = flag[len(EXPRESSION_PREFIX):].split('.', 1)[0]
+                if (not flag.startswith(EXPRESSION_PREFIX + 'Item_Soul_')
+                        or b2['Presence'] != soul_presence(FLAG_PREFIX + soul, soul[len('Item_Soul_'):],
+                                                           a2['Presence'])):
+                    raise ValueError('Unexpected presence: ' + path)
+                soul_expressions_seen.add(flag)
+                soul_actors.add(soul)
                 a2['Presence'] = b2['Presence']
                 report['presence'] += 1
             if a2 != b2 and not (path in QOL_MAPS and not edits.get(index)):
@@ -482,7 +519,12 @@ def verify(nup_path, seed_dir):
                   for name, path in RSDB_FILES.items()}
         flags = set()
         if soul_actors:
-            flags = {entry['Hash'] for entry in byml_codec.load(out(GAMEDATA))['root']['Data']['Bool']}
+            gamedata = byml_codec.load(out(GAMEDATA))['root']['Data']
+            flags = {entry['Hash'] for entry in gamedata['Bool']}
+            expressions = {int(entry['Hash']) for entry in gamedata['BoolExp']}
+            missing = sorted(n for n in soul_expressions_seen if murmur3(n) not in expressions)
+            if missing:
+                raise ValueError('Missing soul condition: ' + missing[0])
         for record in manifest.get('skips', {}).get('key_items', {}).get('records', []):
             if record['kind'] == 'ring' and murmur3(record['applied']) not in flags:
                 raise ValueError('Missing key ring flag: ' + record['folder'])
