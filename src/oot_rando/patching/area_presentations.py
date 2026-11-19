@@ -56,6 +56,14 @@ AUTO_SKIPPED = tuple(name for name in AREA_PRESENTATIONS if name not in PREMARKE
 # Inside a window, these still run when it is left at once (in the window's order).
 KEPT_ACTIONS = ('EventExecuteProgressChallengeStep',)
 AUTO_PREFIX = 'RandoAutoSkip_'
+# The presentations start while the loading screen is still up. Left at once, the
+# event ended under it and the screen stayed black (19/11, 0.7.0). The game's own
+# arrivals without a scene wait for that fade first (Dm_SY_BancChangeArrive), as the
+# owl's Dream World skip does: every presentation entry now starts with that wait,
+# before its skip window opens (the + windows too: the native ones, in the fairy
+# fountains, never open under a loading screen).
+LOADING_WAIT = 'RandoLoadingWait_'
+LOADING_ACTOR, LOADING_ACTION = 'UISystemActor', 'EventWaitCloseLoadingFade'
 
 
 def start_values():
@@ -67,18 +75,24 @@ def start_values():
     return values
 
 
-def auto_skip_presentation(raw):
+def auto_skip_presentation(raw, fade_in=True):
     """``raw`` with every presentation entry's skip window left on its first frame.
 
+    ``fade_in`` (seeds from 19/11 on): the window is not entered at all. Opening and
+    closing it on the same frame, under the loading screen, left the event stuck on a
+    black screen with Link frozen (Longshot, Goron City and Kakariko, 19/11). The entry
+    now goes straight to the kept quest steps, the window's fade-in (run every time)
+    and the area name frame.
+
     Returns (bytes, report): the :func:`add_skip_window` records, each with ``auto``
-    (the window end jumped to) and ``kept`` (cloned quest steps)."""
+    (the event jumped to) and ``kept`` (cloned quest steps)."""
     import copy
     import io
     from evfl.container import Container
     from evfl.event import ActionEvent, Event, SubFlowEvent
     from evfl.util import make_index
     from oot_rando.patching.event_patch import _flow, _snapshot
-    windowed, records = add_skip_window(raw)
+    windowed, records = add_skip_window(raw, fade_in)
     flow = _flow(windowed)
     chart = flow.flowchart
     events = {e.name: e for e in chart.events}
@@ -114,6 +128,12 @@ def auto_skip_presentation(raw):
         kept = sorted((e for e in region if isinstance(e.data, ActionEvent)
                        and e.data.actor_action.v.v in KEPT_ACTIONS), key=lambda e: order[e.name])
         after = ends[0]
+        if fade_in:
+            fade = ends[0].data.nxt.v.data.cases[0].v   # (add_skip_window's fade check)
+            shown = fade.data.nxt.v if fade.data.nxt is not None else None
+            if shown is not None and shown.name.startswith('RandoLocationCheck_'):
+                fade.data.nxt = shown.data.cases[1]   # the frame opens: not skipped
+            after = fade
         clones = []
         for index, original in reversed(list(enumerate(kept))):
             clone = Event()
@@ -126,9 +146,12 @@ def auto_skip_presentation(raw):
             expected[clone.name] = dict(clone.data.params.data)
             clones.insert(0, clone.name)
             after = clone
-        start.data.nxt = make_index(after)
+        if fade_in:
+            entries[entry_name].main_event = make_index(after)
+        else:
+            start.data.nxt = make_index(after)
         for record in entry_records:
-            record['auto'] = ends[0].name
+            record['auto'] = (fade if fade_in else ends[0]).name
             record['kept'] = [events[e.name].data.params.data.get('StepName') for e in kept]
     # What no longer runs outside the windows: the other branches' cleanup only.
     dropped = before - {e.name for e in reachable(roots())} - windows
@@ -151,12 +174,73 @@ def auto_skip_presentation(raw):
     checked_events = {e.name: e for e in checked.flowchart.events}
     for record in records:
         start = checked_entries[record['entry']].main_event.v
-        nxt = start.data.nxt.v
+        nxt = start if fade_in else start.data.nxt.v
         while nxt.name.startswith(AUTO_PREFIX):
             nxt = nxt.data.nxt.v
-        if (start.data.actor_action.v.v != 'EventTriggerSkipAcceptStart' or nxt.name != record['auto']
-                or checked_events[record['auto']].data.actor_action.v.v != 'EventTriggerSkipEnd'):
+        target = 'EventEventFadeIn' if fade_in else 'EventTriggerSkipEnd'
+        if ((not fade_in and start.data.actor_action.v.v != 'EventTriggerSkipAcceptStart')
+                or nxt.name != record['auto'] or checked_events[record['auto']].data.actor_action.v.v != target):
             raise ValueError('Presentation auto-skip misplaced: ' + record['entry'])
+    return result, records
+
+
+def add_loading_wait(raw, records):
+    """``raw`` with each recorded entry waiting for the loading screen to close first.
+
+    Marks each record with ``loading_wait``. Returns (bytes, records)."""
+    import io
+    from evfl.actor import Actor
+    from evfl.common import ActorIdentifier, StringHolder
+    from evfl.container import Container
+    from evfl.event import ActionEvent, Event
+    from evfl.util import make_index, make_rindex
+    from oot_rando.patching.event_patch import _flow, _snapshot, GAMEDATA_ACTOR_PARAMS
+    flow = _flow(raw)
+    chart = flow.flowchart
+    expected = _snapshot(flow)
+    actor = next((a for a in chart.actors if a.identifier.name == LOADING_ACTOR
+                  and a.identifier.sub_name == ''), None)
+    if actor is None:
+        actor = Actor()
+        actor.identifier = ActorIdentifier(LOADING_ACTOR)
+        actor.concurrent_clips = 1
+        actor.params = Container()
+        actor.params.data = dict(GAMEDATA_ACTOR_PARAMS)
+        chart.actors.append(actor)
+    action = next((a for a in actor.actions if a.v == LOADING_ACTION), None)
+    if action is None:
+        action = StringHolder(LOADING_ACTION)
+        actor.actions.append(action)
+    entries = {e.name: e for e in chart.entry_points}
+    starts = {}
+    for entry_name in sorted({r['entry'] for r in records}):
+        entry = entries[entry_name]
+        start = entry.main_event.v
+        starts[entry_name] = start.name if start is not None else None
+        if start is None or start.name.startswith(LOADING_WAIT):
+            raise ValueError('Loading wait: unexpected entry start: ' + entry_name)
+        wait = Event()
+        wait.name, wait.data = LOADING_WAIT + entry_name, ActionEvent()
+        wait.data.actor, wait.data.actor_action = make_rindex(actor), make_rindex(action)
+        wait.data.params = Container()
+        wait.data.params.data = {'IsWaitEnd': True}
+        wait.data.nxt = make_index(start)
+        chart.events.append(wait)
+        expected[wait.name] = dict(wait.data.params.data)
+        entry.main_event = make_index(wait)
+    stream = io.BytesIO()
+    flow.write(stream)
+    result = stream.getvalue()
+    checked = _flow(result)
+    if _snapshot(checked) != expected:
+        raise ValueError('The loading wait changed other parameters.')
+    checked_entries = {e.name: e for e in checked.flowchart.entry_points}
+    for record in records:
+        wait = checked_entries[record['entry']].main_event.v
+        if (wait.name != LOADING_WAIT + record['entry'] or wait.data.actor_action.v.v != LOADING_ACTION
+                or wait.data.nxt.v.name != starts[record['entry']]):
+            raise ValueError('Loading wait misplaced: ' + record['entry'])
+        record['loading_wait'] = True
     return result, records
 
 
@@ -169,14 +253,21 @@ def presentation_files(read_flow, premarked=True):
     for name in AREA_PRESENTATIONS:
         raw = read_flow(flow_path(name))
         if premarked and name in PREMARKED:
-            files[flow_path(name)], report[name] = add_skip_window(raw)
+            patched, records = add_skip_window(raw)
         else:
-            files[flow_path(name)], report[name] = auto_skip_presentation(raw)
+            patched, records = auto_skip_presentation(raw)
+        files[flow_path(name)], report[name] = add_loading_wait(patched, records)
     return files, report
 
 
 def expected_flow(name, original, records):
     """The flow verification rebuilds from the original and its spoiler records."""
+    import copy
+    fade_in = any(record.get('fade_in') for record in records)   # (seeds before 19/11: none)
     if any(record.get('auto') for record in records):
-        return auto_skip_presentation(original)[0]
-    return add_skip_window(original)[0]
+        patched, rebuilt = auto_skip_presentation(original, fade_in)
+    else:
+        patched, rebuilt = add_skip_window(original, fade_in)
+    if any(record.get('loading_wait') for record in records):   # (seeds before 19/11: none)
+        patched = add_loading_wait(patched, copy.deepcopy(rebuilt))[0]
+    return patched

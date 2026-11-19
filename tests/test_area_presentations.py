@@ -91,24 +91,54 @@ class NativePresentations(unittest.TestCase):
 
     def test_auto_skip_jumps_to_the_window_end(self):
         from oot_rando.patching.event_patch import _flow
-        from oot_rando.patching.qol_patches import flow_path
+        from oot_rando.patching.qol_patches import _successors, flow_path
         files, report = ap.presentation_files(self.read)
         self.assertEqual(set(files), {flow_path(n) for n in AREA_PRESENTATIONS})
         for name in ap.AUTO_SKIPPED:
             chart = _flow(files[flow_path(name)]).flowchart
             entries = {e.name: e for e in chart.entry_points}
             for record in report[name]:
-                start = entries[record['entry']].main_event.v
-                self.assertEqual(start.data.actor_action.v.v, 'EventTriggerSkipAcceptStart')
-                step = start.data.nxt.v
+                # Waits for the loading screen first, else the screen stays black (19/11).
+                wait = entries[record['entry']].main_event.v
+                self.assertEqual(wait.data.actor.v.identifier.name, 'UISystemActor')
+                self.assertEqual(wait.data.actor_action.v.v, 'EventWaitCloseLoadingFade')
+                self.assertEqual(wait.data.params.data, {'IsWaitEnd': True})
+                # No skip window is entered (stuck event, 19/11): quest steps, fade-in, frame.
+                step = wait.data.nxt.v
                 kept = []
                 while step.name.startswith(ap.AUTO_PREFIX):
                     kept.append(step.data.params.data['StepName'])
                     step = step.data.nxt.v
                 self.assertEqual(step.name, record['auto'])
                 self.assertEqual(kept, record['kept'])
+                self.assertEqual(step.data.actor_action.v.v, 'EventEventFadeIn')
+                frame = step.data.nxt.v
+                self.assertEqual(frame.data.actor_action.v.v, 'EventTriggerOpenLocationUI')
+                self.assertEqual(frame.data.nxt.v.data.params.data['GameDataName'],
+                                 record['location_ui']['visit'])
+                reached, stack = set(), [wait]
+                while stack:
+                    event = stack.pop()
+                    if event is None or event.name in reached:
+                        continue
+                    reached.add(event.name)
+                    stack.extend(_successors(event))
+                    self.assertNotIn(getattr(getattr(event.data, 'actor_action', None), 'v', None) and
+                                     event.data.actor_action.v.v,
+                                     ('EventTriggerSkipAcceptStart', 'EventTriggerSkipEnd'), name)
         for name in ap.PREMARKED:
             self.assertFalse(any(r.get('auto') for r in report[name]))
+            # The + windows wait for the loading screen too.
+            chart = _flow(files[flow_path(name)]).flowchart
+            entries = {e.name: e for e in chart.entry_points}
+            for record in report[name]:
+                wait = entries[record['entry']].main_event.v
+                self.assertEqual(wait.data.actor_action.v.v, 'EventWaitCloseLoadingFade')
+                self.assertEqual(wait.data.nxt.v.data.actor_action.v.v, 'EventTriggerSkipAcceptStart')
+        self.assertTrue(all(r['loading_wait'] for records in report.values() for r in records))
+        for name in AREA_PRESENTATIONS:
+            self.assertEqual(ap.expected_flow(name, self.read(flow_path(name)), report[name]),
+                             files[flow_path(name)])
         self.assertEqual(report['Dm_ForestTemple_0000'][0]['kept'], ['Step05'])
 
     def test_without_start_flags_everything_is_auto_skipped(self):
