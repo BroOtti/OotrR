@@ -36,7 +36,7 @@ GAME_OPTIONS = [('randomize_chests', 'Randomize the four Kokiri chests (child an
                 ('avoid_vanilla', 'Avoid vanilla rewards when the pool allows it'),
                 ('open_forest', 'Open the way from Kokiri Forest to Hyrule Field'),
                 ('skulltulas_always_present', 'Night-only gold skulltulas present day and night')]
-SKIP_OPTIONS = [('skip_locked_cutscenes', 'Skippable cutscenes: intro, title screen demo, end credits and area presentations'),
+SKIP_OPTIONS = [('skip_locked_cutscenes', 'Skippable cutscenes: intro, title screen demo and end credits'),
                 ('skip_auto_dialogues', 'Automatic dialogues skippable with + (minigames, Navi: 12 sequences)'),
                 ('skip_chest_cutscenes', 'Chests (big and small) without cutscene: the lid opens and the item is obtained')]
 OPTIONS = GAME_OPTIONS + SKIP_OPTIONS
@@ -53,6 +53,7 @@ TRACKER_KINDS = {
     'vanilla_boss': 'Boss', 'vanilla_bossheart': 'Heart Container', 'vanilla_cutscene': 'Cutscene',
     'vanilla_rupeetower': 'Rupee tower', 'full_boss': 'Dungeon reward', 'full_bossheart': 'Boss heart container',
     'full_fairy': 'Great fairy', 'full_quest': 'Quest reward',
+    'full_master_sword': 'Master Sword', 'full_gerudo_card': 'Gerudo Membership Card',
 }
 
 OPTION_COPY = {
@@ -68,7 +69,7 @@ OPTION_COPY = {
     'shuffle_npc_gifts': ('Character gifts and minigames', 'Shuffles the supported rewards of characters and minigames.'),
     'shuffle_boss_rewards': ('Boss and dungeon rewards', 'Shuffles spiritual stones, medallions and heart containers. The game scenes are kept.'),
     'shuffle_great_fairies': ('Great fairy rewards', 'Shuffles spells, magic and defense upgrades.'),
-    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs have their own shuffle setting.'),
+    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs follow the Songs setting.'),
     'shuffle_pots': ('Pots', 'The first reward is shuffled. Once picked up, the pot goes back to its vanilla loot.'),
     'shuffle_crates': ('Crates', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
     'shuffle_beehives': ('Beehives', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
@@ -161,6 +162,10 @@ OPTION_TIPS = {
                             'every kind of enemy has its own soul. A new game is required.',
     'big_poe_count': 'The Poe collector gives his reward after this many Big Poes (vanilla: 10). '
                      'To be confirmed in game.',
+    'skip_child_zelda': 'Start as if Malon, Talon, Zelda and Impa had been met: Zelda\'s Letter and Lullaby '
+                        'are shuffled elsewhere. The child castle grounds become optional: their shuffled checks hold '
+                        'green rupees, except the Great Fairy. Later events keep their conditions (Kokiri '
+                        'Forest exit after the Deku Tree...). New save required. To be confirmed in game.',
 }
 # Settings page layout: (card title, card note, [option names]). "game:" names are the
 # general settings of the application (Settings fields), the others complete-mode options.
@@ -168,11 +173,12 @@ OPTION_TIPS = {
 SETTING_GROUPS = (
     ('Open world', 'Zones and quests open from the start.',
      ['game:open_forest', 'open_kakariko', 'open_door_of_time', 'zora_fountain', 'gerudo_fortress',
-      'open_gerudo_valley_bridge']),
+      'open_gerudo_valley_bridge', 'skip_child_zelda']),
     ('Logic and accessibility', '',
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
     ('Item pool', 'What is shuffled and what you start with.',
-     ['item_pool_value', 'start_inventory_from_pool', 'shuffle_kokiri_sword', 'shuffle_remake_items']),
+     ['item_pool_value', 'start_inventory_from_pool', 'shuffle_kokiri_sword',
+      'shuffle_master_sword', 'shuffle_gerudo_card', 'shuffle_remake_items']),
     ('Shuffled locations', 'Where items can be found.',
      ['shuffle_chests', 'chest_matching', 'tokensanity', 'shuffle_freestanding_items', 'shuffle_npc_gifts',
       'shuffle_quest_rewards', 'shuffle_boss_rewards', 'shuffle_great_fairies', 'shuffle_song_items',
@@ -315,7 +321,7 @@ class Application:
         self.connection_status = tk.StringVar(value='Tracker not connected')
         self.tracker_summary = tk.StringVar(value='Open a seed to show its locations.')
         self.seed_chip = tk.StringVar(value='No seed open')
-        self.sidebar = theme.Sidebar(root, self.fonts, self.show_page, footer=f'Version {GENERATOR_VERSION}')
+        self.sidebar = theme.Sidebar(root, self.fonts, self.show_page, footer=f'Version {APP_VERSION}')
         self.sidebar.pack(side='left', fill='y')
         outer = ttk.Frame(root, padding=(34, 26, 34, 18), style='Page.TFrame')
         outer.pack(side='left', fill='both', expand=True)
@@ -1749,6 +1755,9 @@ class Application:
                 label = 'Done' if completed else {'available': 'Available', 'partial': 'Partial zone', 'blocked': 'Blocked', 'unknown': 'Unknown'}.get(access, 'Unknown')
                 if completed and state.get('source') == 'manual':
                     label += ' (manual)'
+                elif not completed and state.get('missing_souls'):
+                    from oot_rando.patching.soul_adapter import soul_name
+                    label += ' • soul: ' + ', '.join(soul_name(s, False) for s in state['missing_souls'])
                 tree.insert(zones[region], 'end', iid=check['id'], text=name, values=(label, reward, kind), tags=('done' if completed else access,))
                 visible += 1
             tree.bind('<<TreeviewOpen>>', lambda event, widget=tree: self.remember_zone(widget, True))
@@ -1915,7 +1924,7 @@ class Application:
             if not self.hud:
                 hookshot = self.hookshot_root()
                 romfs = hookshot / 'romfs' if hookshot else None
-                icons = game_overlay.IconCache(STATE / 'icons', romfs)
+                icons = game_overlay.IconCache(STATE / 'icons', romfs, self.nup.get() or None)
                 icons.ensure()
                 self.hud = game_overlay.GameHud(self.root, icons=icons)
                 self.update_hud()

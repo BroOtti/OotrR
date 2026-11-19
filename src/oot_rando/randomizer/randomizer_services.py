@@ -27,16 +27,19 @@ def read_artifact(directory):
                        ('0.5.0', 'ap-glitchless-v2'), ('0.6.0', 'ap-glitchless-v2'),
                        ('0.7.0', 'ap-glitchless-v3'), ('0.8.0', 'ap-glitchless-v4'),
                        ('0.9.0', 'ap-glitchless-v5'), ('0.10.0', 'ap-glitchless-v5'),
-                       ('0.11.0', 'ap-glitchless-v5')}:
+                       ('0.11.0', 'ap-glitchless-v5'), ('0.11.1', 'ap-glitchless-v5'),
+                       ('0.11.2', 'ap-glitchless-v5'), ('0.11.3', 'ap-glitchless-v5'),
+                       ('0.11.4', 'ap-glitchless-v5'), ('0.10.1', 'ap-glitchless-v5'),
+                       ('0.12.0', 'ap-glitchless-v5')}:
         raise ValueError('Unsupported generator version.')
-    if version[0] in {'0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.6.0', '0.7.0', '0.8.0', '0.9.0', '0.10.0', '0.11.0'}:
+    if version[0] in {'0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.6.0', '0.7.0', '0.8.0', '0.9.0', '0.10.0', '0.11.0', '0.11.1', '0.11.2', '0.11.3', '0.11.4', '0.10.1', '0.12.0'}:
         settings.validate_supported()
-    if version[0] in ('0.1.0', '0.4.0', '0.9.0', '0.10.0'):
+    if version[0] in ('0.1.0', '0.4.0', '0.9.0', '0.10.0', '0.11.0', '0.11.1', '0.11.2', '0.11.3', '0.11.4', '0.10.1'):
         # Early 0.1 manifests predate the categories field and 0.4 manifests the
         # non-chest options. Do not inject defaults into their historical seed
         # identity while validating their settings.
-        # Stable 0.9/0.10 full settings also predate the dev-only option defaults;
-        # inserting those defaults must not change an existing artifact's identity.
+        # Earlier full settings predate newer option defaults; inserting those
+        # defaults must not change an existing artifact's identity.
         identity = hashlib.sha256(json.dumps({'generator': version[0], 'adapter': version[1],
                                               'settings': manifest['settings']}, ensure_ascii=False,
                                              sort_keys=True, separators=(',', ':')).encode()).hexdigest()
