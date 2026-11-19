@@ -78,6 +78,34 @@ def read_artifact(directory):
     return manifest, checks
 
 
+def regeneration_settings(manifest, current_version=None):
+    """Settings to generate an accepted seed again with this version of the generator, or None.
+
+    ``manifest`` must come from :func:`read_artifact`, which refuses the seeds this version no
+    longer supports. A seed made by the current generator needs no regeneration. The settings
+    (seed name, full options, categories, Archipelago patch...) are read back unchanged, so
+    the regenerated seed keeps its name and settings; only its identity follows the new
+    generator version."""
+    if current_version is None:
+        from oot_rando.randomizer.randomizer_core import GENERATOR_VERSION as current_version
+    if not isinstance(manifest, dict) or manifest.get('generator_version') == current_version:
+        return None
+    try:
+        return Settings.from_dict(manifest['settings']).validate_supported()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def installed_regeneration(directory, current_version=None):
+    """Settings to regenerate the seed installed in ``directory``, or None when it is up to
+    date, missing, or no longer accepted by this version (see :func:`regeneration_settings`)."""
+    try:
+        manifest, _ = read_artifact(directory)
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+    return regeneration_settings(manifest, current_version)
+
+
 def is_randomizer_seed(directory):
     """True only for a seed folder written by this application (verified manifest)."""
     directory = Path(directory)
