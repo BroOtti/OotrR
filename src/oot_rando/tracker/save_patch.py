@@ -98,7 +98,8 @@ def running_game(processes=None):
         processes = process_images()
     names = set(KNOWN_EXES) | emulator_exes()
     for image in processes:
-        name = Path(image).name.lower()
+        # Windows and POSIX separators alike (a Windows image path read on Linux too).
+        name = image.replace('\\', '/').rsplit('/', 1)[-1].lower()
         if name in names or is_port_process(image):
             return name
     return None
