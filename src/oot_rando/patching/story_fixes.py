@@ -1071,10 +1071,11 @@ def door_of_time_forward(raw):
 
 
 # --- The clock before Zelda ------------------------------------------------------
-# Until Impa's send-off (``HavePlayedEvent.Dm_HrlField_0020``) the remake holds the
-# Hyrule Field clock at 15:00 (issue #40; native code, not in the game data): no night,
-# so no night-only skulltulas, Dampé... before Zelda. The flag is now set at the end of
-# the new-game opening: the clock runs from the start. The send-off itself still plays
+# Issue #40 read the 15:00 cap as waiting for Impa's send-off
+# (``HavePlayedEvent.Dm_HrlField_0020``); in game the clock waits for Kaepora's first
+# field arrival instead (Discord 19/11): its saved effects are set at the start too
+# (:mod:`oot_rando.patching.owl_advice`, ``FIELD_ARRIVAL_VALUES``). The send-off flag
+# stays set at the end of the new-game opening. The send-off itself still plays
 # (Impa's talk starts it with a map change, not on this flag); the flag is otherwise
 # read only by two child NPCs' lines (Npc_Hylia_043_Child, Npc_Hylia_Soldier_008_Child)
 # and by the Zora River owl (Dm_ZoraRiver_0005, which also needs Saria's Song).
