@@ -1890,7 +1890,7 @@ class Application:
             if not self.hud:
                 hookshot = self.hookshot_root()
                 romfs = hookshot / 'romfs' if hookshot else None
-                icons = game_overlay.IconCache(STATE / 'icons', romfs)
+                icons = game_overlay.IconCache(STATE / 'icons', romfs, self.nup.get() or None)
                 icons.ensure()
                 self.hud = game_overlay.GameHud(self.root, icons=icons)
                 self.update_hud()
