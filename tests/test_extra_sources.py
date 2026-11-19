@@ -140,13 +140,14 @@ class Units(unittest.TestCase):
         npc = {l for ap, _, _, _ in NPC_GIFTS for l in ap}
         seen = set()
         for source, ap, _, sites in EVENT_GIFTS:
-            self.assertIn(source, ('boss', 'fairy', 'quest'))
+            self.assertIn(source, ('boss', 'fairy', 'quest', 'song', 'master_sword', 'gerudo_card'))
             self.assertFalse(set(ap) & (npc | seen))
             seen.update(ap)
             # Every site of one reward gives the same AP item.
             self.assertEqual(len({actor_item(actor, '') for _, _, actor in sites}), 1, ap)
         self.assertEqual(sum(s == 'boss' for s, *_ in EVENT_GIFTS), 9)
         self.assertEqual(sum(s == 'fairy' for s, *_ in EVENT_GIFTS), 6)
+        self.assertEqual(sum(s == 'song' for s, *_ in EVENT_GIFTS), 12)
         self.assertEqual(len(BOSS_HEARTS), 8)
         for category, option in (('boss_rewards', 'shuffle_boss_rewards'), ('fairies', 'shuffle_great_fairies'),
                                  ('quest_rewards', 'shuffle_quest_rewards')):
@@ -206,7 +207,11 @@ class Integration(unittest.TestCase):
 
     def test_inventory(self):
         counts = Counter(e['source'] for e in self.extra.values() if not e['reason'])
-        self.assertEqual(counts['skulltula'], 100)
+        # 100 tokens minus the two child-only Death Mountain Crater ones
+        # (remake_world.inaccessible_child_actor).
+        self.assertEqual(counts['skulltula'], 98)
+        self.assertFalse([e['id'] for e in self.extra.values()
+                          if e['source'] == 'skulltula' and e['id'].startswith('DeathMountainCrater#')])
         self.assertEqual(counts['npc'], len(NPC_GIFTS))
         self.assertGreaterEqual(counts['shop'], 50)
         self.assertGreaterEqual(counts['freestanding'], 24)

@@ -61,7 +61,7 @@ PILOT = ('Adapter built and checked statically; in-game behaviour still to be co
 NO_EVENT = 'Event or NPC: reward adapter still to be written and proven in game.'
 GENERIC_KEYS = 'Remake keys are generic (credited to the current dungeon): impossible outside the dungeon.'
 # Items that can be held from the start (silent pouch add at the end of the opening).
-# Songs, tunics, trade items and dungeon items have no pouch actor of their own yet.
+# Tunics, trade items and dungeon items have no pouch actor of their own yet.
 STARTABLE_ITEMS = (
     'Kokiri Sword', 'Biggoron Sword', 'Deku Shield', 'Hylian Shield', 'Mirror Shield',
     'Slingshot', 'Bow', 'Boomerang', 'Progressive Hookshot', 'Megaton Hammer', 'Lens of Truth',
@@ -71,6 +71,9 @@ STARTABLE_ITEMS = (
     'Bottle with Milk', 'Zeldas Letter', 'Stone of Agony', 'Heart Container', 'Piece of Heart',
     'Gold Skulltula Token', 'Kokiri Emerald', 'Goron Ruby', 'Zora Sapphire', 'Forest Medallion',
     'Fire Medallion', 'Water Medallion', 'Spirit Medallion', 'Shadow Medallion', 'Light Medallion',
+    'Zeldas Lullaby', 'Eponas Song', 'Sarias Song', 'Suns Song', 'Song of Time', 'Song of Storms',
+    'Minuet of Forest', 'Bolero of Fire', 'Serenade of Water', 'Requiem of Spirit', 'Nocturne of Shadow',
+    'Prelude of Light',
 )
 MAX_START_COUNT = 100
 
@@ -140,7 +143,17 @@ OPTIONS = [
            'Always the case: a level is only given above the previous one. No effect, kept for older '
            'settings.', kind='bool'),
     Option('shuffle_song_items', 'Items', 'Songs',
-           (('song', 'Vanilla', OK), ('dungeon', 'Dungeon rewards', NO_EVENT), ('any', 'Anywhere', NO_EVENT)), 'song'),
+           (('song', 'Vanilla', OK), ('shuffled', 'Shuffled among song locations', OK),
+            ('dungeon', 'Song locations and dungeon rewards', OK),
+            ('any', 'Anywhere a cutscene can give them', OK),
+            ('everywhere', 'Anywhere, chests and pickups too', OK)), 'song',
+           'A song is given with its text only ("You learned …"), nothing in Link\'s hands; '
+           'the song cutscenes no longer teach their melody when they give another item. '
+           '"Anywhere a cutscene": song locations, dungeon rewards, great fairies and story rewards (the '
+           'matching options must be on). "Chests and pickups too": also chests, freestanding spots, '
+           'pots, crates and gold skulltulas when those are shuffled; there the song shows Sheik\'s '
+           'harp in its colour of the ocarina menu. Not validated in game.',
+           experimental=('shuffled', 'dungeon', 'any', 'everywhere')),
     Option('shopsanity', 'Items', 'Shops (items shuffled per shop)',
            (('off', 'Vanilla', OK), ('1', '1 item per shop', OK), ('2', '2 items', OK),
             ('3', '3 items', OK), ('4', '4 items', OK), ('5', '5 items', OK), ('6', '6 items', OK),
@@ -169,7 +182,15 @@ OPTIONS = [
     Option('shuffle_ocarinas', 'Items', 'Ocarinas', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('shuffle_child_trade', 'Items', 'Child trade quest',
            (('vanilla', 'Vanilla', OK), ('shuffle', 'Shuffled', NO_EVENT), ('skip_child_zelda', 'Skip Zelda', NO_EVENT)), 'vanilla'),
-    Option('shuffle_gerudo_card', 'Items', 'Gerudo Card', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
+    Option('shuffle_master_sword', 'Items', 'Master Sword', ((False, OK), (True, OK)), False,
+           'Shuffle the Master Sword and the reward at its pedestal. Time travel remains available '
+           'at the pedestal. To be validated in game.', kind='bool', experimental=(True,)),
+    Option('shuffle_gerudo_card', 'Items', 'Gerudo Membership Card', ((False, OK), (True, OK)), False,
+           'Shuffle the Gerudo Membership Card and the reward for rescuing the carpenters. '
+           'Rescuing the carpenters still completes their quest. No game flow reads the card itself, so '
+           'the logic expects both the card and the carpenters freed for the gate, the training ground '
+           'and horseback archery. To be validated in game.',
+           kind='bool', experimental=(True,)),
     Option('shuffle_beans', 'Items', 'Magic beans', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('shuffle_medigoron_carpet_salesman', 'Items', 'Medigoron and carpet salesman',
            ((False, OK), (True, NO_EVENT)), False, kind='bool'),
@@ -210,7 +231,7 @@ OPTIONS = [
     Option('shuffle_frog_song_rupees', 'Items', 'Frog song rupees', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('start_inventory_from_pool', 'Items', 'Starting inventory',
            None, {}, 'Items held from the start (copies taken out of the item pool). Hearts: '
-           '"Heart Container" or "Piece of Heart". Songs and tunics are not available yet.', kind='items'),
+           '"Heart Container" or "Piece of Heart"; songs by name ("Sarias Song"). Tunics are not available yet.', kind='items'),
     Option('item_pool_value', 'Items', 'Item pool',
            (('balanced', 'Balanced', OK), ('plentiful', 'Plentiful (one extra copy of the major items)', OK),
             ('scarce', 'Scarce (fewer bottles and hearts)', OK),
@@ -258,7 +279,14 @@ OPTIONS = [
            'room requires the souls present there. A new save is required.',
            experimental=('bosses', 'regional', 'all')),
     # -------------------------------------------------------- Quality of life
-    Option('skip_child_zelda', 'Quality of life', 'Skip meeting child Zelda', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
+    Option('skip_child_zelda', 'Quality of life', 'Skip child Hyrule Castle', ((False, OK), (True, OK)), False,
+           'A new game starts as if Malon, Talon, Zelda and Impa had already been met: Zelda\'s Letter '
+           'and Zelda\'s Lullaby are shuffled elsewhere (the lullaby anywhere a song can be given). '
+           'The castle grounds become optional: every '
+           'shuffled check there (pots, crates, skulltulas, Zelda, Impa) holds a green rupee, except the '
+           'Great Fairy. What comes after the castle keeps its own conditions (Kokiri Forest exit after '
+           'the Deku Tree, Kakariko gate with the letter...). New save required. To be validated in game.',
+           kind='bool', experimental=(True,)),
     Option('no_escape_sequence', 'Quality of life', 'Skip the castle escape', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('no_guard_stealth', 'Quality of life', 'Skip the castle stealth section', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('no_epona_race', 'Quality of life', 'Epona without the race', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
@@ -266,8 +294,9 @@ OPTIONS = [
            'Same patch as "Chests without cutscene" in the setup: the lid opens and Link holds the item up.',
            kind='bool'),
     Option('free_scarecrow', 'Quality of life', 'Free scarecrow', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
-    Option('big_poe_count', 'Quality of life', 'Big Poes to bring back', None, 10, kind='int', minimum=1, maximum=10,
-           supported_ints=(10,)),
+    Option('big_poe_count', 'Quality of life', 'Big Poes to bring back', None, 10,
+           'The collector gives his reward after this many Big Poes. Not validated in game.',
+           kind='int', minimum=1, maximum=10, supported_ints=tuple(range(1, 11)), experimental=tuple(range(1, 10))),
     Option('chicken_count', 'Quality of life', 'Cuccos to bring back', None, 7, kind='int', minimum=0, maximum=7,
            supported_ints=(7,)),
 ]
@@ -349,6 +378,7 @@ PRESETS = {
         'shuffle_enemy_spawns': 'all', 'chest_matching': 'scene', 'progressive_order': True,
         'tokensanity': 'all', 'shopsanity': '4', 'shuffle_freestanding_items': 'all', 'shuffle_npc_gifts': True,
         'shuffle_boss_rewards': True, 'shuffle_great_fairies': True, 'shuffle_quest_rewards': True,
+        'shuffle_master_sword': True, 'shuffle_gerudo_card': True,
         'shuffle_pots': 'all', 'shuffle_crates': 'all', 'shuffle_beehives': True, 'shuffle_bushes': True,
         'shuffle_rocks': True, 'shuffle_scrubs': 'low'}},
     'prudent': {'label': 'Prudent (chests except keys, no souls)', 'values': {
