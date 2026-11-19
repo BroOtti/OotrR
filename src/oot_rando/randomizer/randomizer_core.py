@@ -37,7 +37,9 @@ from oot_rando.logic import rando_options
 GENERATOR_VERSION = '0.12.0'
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
-STARTING_ITEMS = ('Item_BulletBag_Small', 'Item_Quiver_Small')
+# The amiibo menu: given by Kaepora's first field arrival, now never played
+# (patching/owl_advice.py, FIELD_ARRIVAL_POUCH).
+STARTING_ITEMS = ('Item_BulletBag_Small', 'Item_Quiver_Small', 'Pouch_Amiibo')
 
 
 def ap_records(settings):
@@ -472,6 +474,13 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             story = {}
             for path, key, fix in story_fixes.FLOW_FIXES:
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
+            # Kaepora's first field arrival never plays (its effects are set at the start):
+            # its quest step follows the Deku Tree escape instead (patching/owl_advice.py).
+            from oot_rando.patching import owl_advice
+            from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
+            extra_raw[owl_advice.ESCAPE_FLOW], story['owl_field_step'] = owl_advice.field_step_after_escape(
+                extra_raw.get(owl_advice.ESCAPE_FLOW) or decompress(read(owl_advice.ESCAPE_FLOW), d),
+                challenge_steps(decompress(read(CHALLENGES), d)))
             # Full bottles (Ruto's Letter...) on a shelf need no empty bottle (patching/shop_bottles.py).
             from oot_rando.patching.shop_bottles import DISPLAY_SHOP_FLOW, patch_display_shop
             extra_raw[DISPLAY_SHOP_FLOW], story['shop_full_bottles'] = patch_display_shop(
