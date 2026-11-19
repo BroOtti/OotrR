@@ -37,6 +37,16 @@ def verify(nup_path):
             expected_files = {MAP, ADULT_MAP, RESTBL, 'GameData/GameDataList.Product.110.byml.zs',
                               'Event/EventFlow/OpeningEvent.bfevfl.zs', EVENT_SETTINGS} | {
                 flow_path(name) for name in AREA_PRESENTATIONS}
+            # Always on: the Save Warp button (pause menu, its text in every language, the
+            # bancs it starts from) and the title badge.
+            from oot_rando.patching import save_warp, title_badge
+            expected_files |= {save_warp.ON_LOAD_MODULE, save_warp.SAVE_MODULE, save_warp.PLUS_MENU_MODULE,
+                               save_warp.MENU_LOAD_MODULE, save_warp.LAYOUT_ARCHIVE,
+                               title_badge.TITLE_BNTX, title_badge.COMMON_BNTX}
+            warp_files = {name for name in manifest['files'] if name.startswith(('Banc/GameBancParam/', 'Mals/'))}
+            assert save_warp.banc_param(save_warp.CHILD_HOME) in warp_files and any(
+                name.startswith('Mals/') for name in warp_files), sorted(warp_files)[:5]
+            expected_files |= warp_files
             if values[0]:
                 expected_files |= {STATIC, PHYSICS}
             if values[1]:
