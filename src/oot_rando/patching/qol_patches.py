@@ -17,7 +17,9 @@ every cutscene and dialogue they apply to:
 * the area presentation cutscenes (flow-driven, ``AREA_PRESENTATIONS``) receive
   the native ``EventTriggerSkipAcceptStart`` … ``EventTriggerSkipEnd`` window
   used by the great fairy fountains, and their non-pausing rows use ``FlowchartEvent``;
-  their area name frame opens after the window, only when it was not skipped;
+  their area name frame opens after the window, only when it was not skipped.
+  :mod:`oot_rando.patching.area_presentations` (always on) then pre-marks or
+  auto-skips every one of them;
 * no skip window covers a flow that talks (``DIALOGUE_ACTIONS``);
 * optionally, chests skip their opening performance (``quick_chest`` for the big
   ones, ``quick_small_chest`` for the small ones) while Link still holds the item up.

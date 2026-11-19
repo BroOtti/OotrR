@@ -202,7 +202,15 @@ OPTIONS = [
     Option('shuffle_ocarinas', 'Items', 'Ocarinas', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('shuffle_child_trade', 'Items', 'Child trade quest',
            (('vanilla', 'Vanilla', OK), ('shuffle', 'Shuffled', NO_EVENT), ('skip_child_zelda', 'Skip Zelda', NO_EVENT)), 'vanilla'),
-    Option('shuffle_gerudo_card', 'Items', 'Gerudo Card', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
+    Option('shuffle_master_sword', 'Items', 'Master Sword', ((False, OK), (True, OK)), False,
+           'Shuffle the Master Sword and the reward at its pedestal. Time travel remains available '
+           'at the pedestal. To be validated in game.', kind='bool', experimental=(True,)),
+    Option('shuffle_gerudo_card', 'Items', 'Gerudo Membership Card', ((False, OK), (True, OK)), False,
+           'Shuffle the Gerudo Membership Card and the reward for rescuing the carpenters. '
+           'Rescuing the carpenters still completes their quest. No game flow reads the card itself, so '
+           'the logic expects both the card and the carpenters freed for the gate, the training ground '
+           'and horseback archery. To be validated in game.',
+           kind='bool', experimental=(True,)),
     Option('shuffle_beans', 'Items', 'Magic beans', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('shuffle_medigoron_carpet_salesman', 'Items', 'Medigoron and carpet salesman',
            ((False, OK), (True, NO_EVENT)), False, kind='bool'),
@@ -397,6 +405,7 @@ PRESETS = {
         'shuffle_enemy_spawns': 'all', 'chest_matching': 'scene', 'progressive_order': True,
         'tokensanity': 'all', 'shopsanity': '4', 'shuffle_freestanding_items': 'all', 'shuffle_npc_gifts': True,
         'shuffle_boss_rewards': True, 'shuffle_great_fairies': True, 'shuffle_quest_rewards': True,
+        'shuffle_master_sword': True, 'shuffle_gerudo_card': True,
         'shuffle_pots': 'all', 'shuffle_crates': 'all', 'shuffle_beehives': True, 'shuffle_bushes': True,
         'shuffle_rocks': True, 'shuffle_trees': True, 'shuffle_scrubs': 'low'}},
     'prudent': {'label': 'Prudent (chests except keys, no souls)', 'values': {

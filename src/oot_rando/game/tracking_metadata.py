@@ -46,7 +46,7 @@ ITEM_LABELS = {
     'Gold Skulltula Token': 'Gold Skulltula Token', 'Recovery Heart': 'Recovery Heart',
     'Dins Fire': 'Din\'s Fire', 'Farores Wind': 'Farore\'s Wind', 'Nayrus Love': 'Nayru\'s Love',
     'Light Arrows': 'Light Arrows', 'Ice Arrows': 'Ice Arrows',
-    'Zeldas Letter': 'Zelda\'s Letter', 'Biggoron Sword': 'Biggoron\'s Sword',
+    'Zeldas Letter': 'Zelda\'s Letter', 'Biggoron Sword': 'Biggoron\'s Sword', 'Master Sword': 'Master Sword',
     'Fire Arrows': 'Fire Arrows', 'Stone of Agony': 'Stone of Agony',
     'Double Defense': 'Double Defense', 'Magic Jar': 'Magic Jar',
     'Deku Stick Capacity': 'Deku Stick Capacity', 'Deku Nut Capacity': 'Deku Nut Capacity',

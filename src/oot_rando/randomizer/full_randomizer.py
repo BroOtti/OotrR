@@ -78,6 +78,8 @@ def enabled_sources(options):
                                 ('npc', 'shuffle_npc_gifts', False), ('boss', 'shuffle_boss_rewards', False),
                                 ('bossheart', 'shuffle_boss_rewards', False), ('fairy', 'shuffle_great_fairies', False),
                                 ('quest', 'shuffle_quest_rewards', False), ('scrub', 'shuffle_scrubs', 'off'),
+                                ('master_sword', 'shuffle_master_sword', False),
+                                ('gerudo_card', 'shuffle_gerudo_card', False),
                                 ('song', 'shuffle_song_items', 'song')):
         value = options.get(option, off)
         if value != off:
@@ -150,6 +152,7 @@ def ap_settings(options, open_forest):
                                                'bridge', 'trials',
                                                'shuffle_ganon_bosskey', 'big_poe_count', 'chicken_count',
                                                'free_scarecrow', 'shuffle_child_trade', 'logic_rules',
+                                               'shuffle_master_sword', 'shuffle_gerudo_card',
                                                'logic_no_night_tokens_without_suns_song')}
     values['open_forest'] = 'closed_deku' if open_forest else 'closed'
     # AP rules' ``keysanity``: false lets one Fire Temple door open without its key

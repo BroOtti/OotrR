@@ -33,16 +33,15 @@ def verify(nup_path):
             output = base / str(index)
             manifest = generate(nup_path, output, settings)
             read_artifact(output)
+            # Area presentations never play and their rows pause: always written.
             expected_files = {MAP, ADULT_MAP, RESTBL, 'GameData/GameDataList.Product.110.byml.zs',
-                              'Event/EventFlow/OpeningEvent.bfevfl.zs'}
+                              'Event/EventFlow/OpeningEvent.bfevfl.zs', EVENT_SETTINGS} | {
+                flow_path(name) for name in AREA_PRESENTATIONS}
             if values[0]:
                 expected_files |= {STATIC, PHYSICS}
             if values[1]:
-                expected_files |= {INTRO} | {list_path(name) for name in LOCKED_CUTSCENES} | {
-                    flow_path(name) for name in AREA_PRESENTATIONS}
+                expected_files |= {INTRO} | {list_path(name) for name in LOCKED_CUTSCENES}
                 expected_files |= {flow_path(name) for name in manifest['skips']['cutscene_windows']}
-            if values[1] or values[2]:
-                expected_files.add(EVENT_SETTINGS)
             assert set(manifest["files"]) == expected_files, (values, sorted(set(manifest["files"]) ^ expected_files)[:10])
             actual = Byml(decompress((output / 'romfs' / MAP).read_bytes(), dic)).root
             for actor in actual['Actors']:

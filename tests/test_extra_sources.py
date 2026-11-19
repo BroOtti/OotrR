@@ -158,7 +158,7 @@ class Units(unittest.TestCase):
         npc = {l for ap, _, _, _ in NPC_GIFTS for l in ap}
         seen = set()
         for source, ap, _, sites in EVENT_GIFTS:
-            self.assertIn(source, ('boss', 'fairy', 'quest', 'song'))
+            self.assertIn(source, ('boss', 'fairy', 'quest', 'song', 'master_sword', 'gerudo_card'))
             self.assertFalse(set(ap) & (npc | seen))
             seen.update(ap)
             # Every site of one reward gives the same AP item.

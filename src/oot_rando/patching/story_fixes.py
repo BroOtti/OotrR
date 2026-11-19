@@ -404,25 +404,76 @@ ZORA_RIVER_WALLS = (4565321854739336115, 7850395794748438732, 798233963005093143
 ZORA_RIVER_WALL_PRESENCE = 'Sequence_IsChildhood'
 ZORA_RIVER_WALL_PRESENCE_ENTRY = {'FlagName': ZORA_RIVER_WALL_PRESENCE, 'IsCheckLazy': False,
                                   'IsNegation': False}
+# The child map has the same seven walls (own hashes, same places, beside the same
+# two boulders). They now only exist for adult Link (``Sequence_IsChildhood``
+# negated, never true in the child map): no invisible wall at the river mouth for
+# either age. The logic is unchanged (``ZR Front -> Zora River`` still asks for the
+# boulder broken, remake.json) until passing over the fence is seen in game.
+ZORA_RIVER_CHILD_MAP = 'Banc/ZoraRiver/ZoraRiver_Child_Static.bcett.byml.zs'
+ZORA_RIVER_CHILD_WALLS = (1671256346243721333, 2863011381430310501, 4942866467657729468, 8855423962460166888,
+                          12374977777450469396, 14519305071033520687, 15623121253783701078)
+ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY = dict(ZORA_RIVER_WALL_PRESENCE_ENTRY, IsNegation=True)
 
 
-def zora_river_wall_edits(root):
-    """``patch_strings`` edits: the river mouth walls of the adult map, child-only.
+def zora_river_wall_edits(root, walls=None, presence=None):
+    """``patch_strings`` edits: the river mouth ``walls`` (default: the adult map's)
+    given ``presence`` (default: child-only).
 
     Returns (edits, actor indices)."""
+    walls = ZORA_RIVER_WALLS if walls is None else walls
+    presence = ZORA_RIVER_WALL_PRESENCE_ENTRY if presence is None else presence
     found = {actor.get('Hash'): i for i, actor in enumerate(root.get('Actors', []))
-             if actor.get('Hash') in ZORA_RIVER_WALLS}
-    if set(found) != set(ZORA_RIVER_WALLS):
+             if actor.get('Hash') in walls}
+    if set(found) != set(walls):
         raise ValueError("Zora's River mouth walls not found.")
     edits = []
-    for ident in ZORA_RIVER_WALLS:
+    for ident in walls:
         actor = root['Actors'][found[ident]]
         if actor.get('Gyaml') != ZORA_RIVER_WALL or 'Presence' in actor:
             raise ValueError("Unexpected Zora's River mouth wall.")
         base = ('Actors', found[ident], 'Presence')
         edits += [{'path': base + (key,), 'before': None, 'after': value}
-                  for key, value in ZORA_RIVER_WALL_PRESENCE_ENTRY.items()]
+                  for key, value in presence.items()]
     return edits, sorted(found.values())
+
+
+def zora_river_child_wall_edits(root):
+    """The child map's river mouth walls, adult-only (see above)."""
+    return zora_river_wall_edits(root, ZORA_RIVER_CHILD_WALLS, ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY)
+
+
+# --- Lake Hylia island tree: no invisible wall for the Longshot ----------------------
+# One ``FldObj_AirWall_Hookshot`` covers the dead tree of the Gossip Stone island
+# (HyruleField_Adult_Dynamic, at -196.3, 144.8, 515.4; its Gold Skulltula is at y 150.3).
+# Its Presence is ``WaterTemple_Room07_00`` negated: the wall only goes away once that
+# flag is set, by the Longshot chest of the Dark Link room
+# (``WaterTemple_Level_Room_07_Prefab_aa21``: TreasureBox OpenState -> SetBoolTrue).
+# Vanilla always opens that chest before holding the Longshot; with the Longshot found
+# elsewhere the tree stayed out of reach (``LH GS Tree``: Longshot at night). The adult
+# map's wall now only exists for child Link (never true there), like the Zora's River
+# mouth walls. The child map keeps it (child Link has no Longshot). Not validated in game.
+LAKE_TREE_MAP = 'Banc/HyruleField/HyruleField_Adult_Dynamic.bcett.byml.zs'
+LAKE_TREE_WALL = 'FldObj_AirWall_Hookshot'
+LAKE_TREE_WALL_HASH = 9829790505452123995
+LAKE_TREE_WALL_VANILLA = {'FlagName': 'WaterTemple_Room07_00', 'IsCheckLazy': False, 'IsNegation': True}
+LAKE_TREE_WALL_PRESENCE_ENTRY = {'FlagName': 'Sequence_IsChildhood', 'IsCheckLazy': False, 'IsNegation': False}
+
+
+def lake_tree_wall_edits(root):
+    """``patch_strings`` edits: the island tree's hookshot wall of the adult map, child-only.
+
+    Returns (edits, actor index)."""
+    found = [i for i, actor in enumerate(root.get('Actors', [])) if actor.get('Hash') == LAKE_TREE_WALL_HASH]
+    if len(found) != 1:
+        raise ValueError('Lake Hylia tree wall not found.')
+    actor = root['Actors'][found[0]]
+    if actor.get('Gyaml') != LAKE_TREE_WALL or actor.get('Presence') != LAKE_TREE_WALL_VANILLA:
+        raise ValueError('Unexpected Lake Hylia tree wall.')
+    base = ('Actors', found[0], 'Presence')
+    edits = [{'path': base + (key,), 'before': LAKE_TREE_WALL_VANILLA[key], 'after': value}
+             for key, value in LAKE_TREE_WALL_PRESENCE_ENTRY.items()
+             if value != LAKE_TREE_WALL_VANILLA[key]]
+    return edits, found[0]
 
 
 # --- Zelda's escape (DoorOfTime) on the three stones ---------------------------
@@ -616,6 +667,191 @@ def skip_stone_menu_presentation(raw):
 PEDESTAL_MODULE = 'Logic/Market_Adult_Prefab_89da.logic.module.ainb'
 PEDESTAL_BEFORE = 'SageOfForest_IsCompleted_Exp'
 PEDESTAL_GATE = 'AllSage_IsAfter_Ready_Exp'
+
+# Zelda's revelation: inventory, independent of which bosses granted the rewards.
+LIGHT_ARROWS_MODULE = 'Logic/Market_Adult_Prefab_c668.logic.module.ainb'
+LIGHT_ARROWS_MEDALS = ('IsGet.Item_Medal_Shadow', 'IsGet.Item_Medal_Spirit')
+LIGHT_ARROWS_PLAYED = 'HavePlayedEvent.Dm_TimeTemple_0135'
+PRELUDE_MODULE = 'Logic/Market_Adult_Prefab_edc2.logic.module.ainb'
+PRELUDE_MEDAL = 'IsGet.Item_Medal_Forest'
+PRELUDE_LATER_STEP = 'AllSage_IsAfter_Step01_01_Exp'
+
+
+def prelude_keeps_later_sage_progress(raw):
+    """Teaching Prelude after Zelda's revelation must not roll AllSage back."""
+    from evfl.util import make_index
+    flow = _Chart(raw)
+    teaching = flow.event('Event37', 'ActionEvent')
+    rollback = flow.event('Event34', 'ActionEvent')
+    if (_params(teaching).get('EventName') != 'Dm_MelodyGet_Shine'
+            or teaching.data.nxt.v is not rollback
+            or rollback.data.actor_action.v.v != 'EventExecuteRollbackChallengeStep'
+            or _params(rollback).get('ChallengeName') != 'AllSage'
+            or _params(rollback).get('ChallengeStep') != 'Step01_01'):
+        raise ValueError('Unexpected Prelude quest rollback (already patched?).')
+    gate = flow.switch('RandoPreludeLaterSages', 'EventQueryIsGameDataBoolExp',
+                       {'GameDataName': PRELUDE_LATER_STEP}, None, rollback)
+    teaching.data.nxt = make_index(gate)
+    result, _ = flow.write()
+    return result, {'gate': PRELUDE_LATER_STEP, 'rollback': 'Event34'}
+
+
+def prelude_on_forest_medallion(raw):
+    """The native one-shot Prelude area checks the Forest Medallion, not its boss."""
+    import copy
+    import ainb
+    from oot_rando.patching.ap_mailbox import ainb_to_binary
+    document = ainb.AINB.from_binary(raw).as_dict()
+    nodes = document['Nodes']
+    if len(nodes) != 5 or nodes[3]['Name'] != 'HoldGameDataGetBoolExpSimple':
+        raise ValueError('Unexpected Prelude trigger module (already patched?).')
+    gate = nodes[3]['Parameters']['Inputs']['String'][0]
+    if (gate['Name'], gate['Default Value']) != ('GameDataNameBoolExp', PEDESTAL_BEFORE):
+        raise ValueError('Unexpected Prelude story gate.')
+    expected = copy.deepcopy(document)
+    node = expected['Nodes'][3]
+    node['Name'] = 'HoldGameDataGetBoolSimple'
+    node['Parameters']['Inputs']['String'][0].update(
+        {'Name': 'GameDataNameBool', 'Default Value': PRELUDE_MEDAL})
+    node['Parameters']['Inputs']['Int'] = [{'Name': 'GameDataArrayIndex', 'Default Value': -1,
+        'Node Index': -1, 'Output Index': 0, 'Flags': ['Uses Default', 'Is Output']}]
+    result = ainb_to_binary(copy.deepcopy(expected))
+    if ainb.AINB.from_binary(result).as_dict() != expected:
+        raise ValueError('Prelude trigger wrongly rewritten.')
+    return result, {'module': PRELUDE_MODULE, 'medallion': PRELUDE_MEDAL}
+
+
+# --- Sheik in Kakariko: the burning village on the three medallions -------------
+# Entering adult Kakariko (Hyrule Field, Graveyard, Death Mountain Trail entrances:
+# ``AddEventFlag`` / ``AddEventName`` of ``FieldAndDungeonEntranceEventRequestActor``)
+# plays ``Dm_SY_BancChangeArrive/KakarikoVillage_Arrive`` (Dm_Kakariko_0030, the
+# flashback, then the burnt banc booted on ``KakarikoVillage_MelodyGet_Shadow``,
+# Nocturne of Shadow) while the GameData BoolExp ``SageOfShadow_BurningEventShouldPlayed``
+# holds: adult AND the three sages awakened (an unnamed BoolExp of
+# ``SageOf{Forest,Fire,Water}_IsCompleted_Exp``) AND the scene never played. The burnt
+# banc itself is chosen by ``Sequence_IsAlternative_KakarikoAdult`` (adult AND the same
+# sages). Both now read the Forest, Fire and Water Medallions held instead of the
+# sages, whichever bosses (or other sources) gave them. Not validated in game.
+KAKARIKO_BURNING = 'SageOfShadow_BurningEventShouldPlayed'
+KAKARIKO_ALTERNATIVE = 'Sequence_IsAlternative_KakarikoAdult'
+KAKARIKO_SAGES = 1813060025       # BoolExp: SageOfForest/Fire/Water_IsCompleted_Exp, AND, AND
+KAKARIKO_MEDALS = ('IsGet.Item_Medal_Forest', 'IsGet.Item_Medal_Fire', 'IsGet.Item_Medal_Water')
+
+
+def _kakariko_programs():
+    """{BoolExp name: (vanilla program, patched program)}; push Bool 0 / BoolExp 10, NOT 5, AND 3."""
+    from oot_rando.patching.soul_adapter import murmur3
+    adult = [[0, murmur3('Sequence_IsChildhood')], [5]]
+    sages = [[10, KAKARIKO_SAGES]]
+    medals = [[0, murmur3(name)] for name in KAKARIKO_MEDALS] + [[3], [3]]
+    not_played = [[0, murmur3('HavePlayedEvent.Dm_Kakariko_0030')], [5], [3]]
+    return {
+        KAKARIKO_BURNING: (adult + sages + not_played + [[3]], adult + medals + not_played + [[3]]),
+        KAKARIKO_ALTERNATIVE: (adult + sages + [[3]], adult + medals + [[3]]),
+    }
+
+
+def kakariko_burning_on_medallions(gamedata_raw):
+    """GameData where Kakariko's burning scene and burnt banc follow the three medallions.
+
+    Returns (bytes, report)."""
+    from oot_rando.formats import byml_codec
+    from oot_rando.patching.soul_adapter import murmur3
+    document = byml_codec.load(gamedata_raw)
+    data = document['root']['Data']
+    bools = {int(e['Hash']) for e in data['Bool']}
+    if any(murmur3(name) not in bools for name in KAKARIKO_MEDALS):
+        raise ValueError('Medallion flag missing from the game data.')
+    entries = {int(e['Hash']): e for e in data['BoolExp']}
+    for name, (vanilla, patched) in _kakariko_programs().items():
+        entry = entries.get(murmur3(name))
+        if entry is None or [[int(v) for v in step] for step in entry['Values']] != vanilla:
+            raise ValueError('Unexpected Kakariko burning condition (already patched?): ' + name)
+        entry['Values'] = [[byml_codec.U64(v) for v in step] for step in patched]
+    result = byml_codec.dump(document)
+    check = {int(e['Hash']): e for e in byml_codec.load(result)['root']['Data']['BoolExp']}
+    for name, (_, patched) in _kakariko_programs().items():
+        if [[int(v) for v in step] for step in check[murmur3(name)]['Values']] != patched:
+            raise ValueError('Kakariko burning condition wrongly rewritten: ' + name)
+    return result, {'expressions': [KAKARIKO_BURNING, KAKARIKO_ALTERNATIVE], 'medallions': list(KAKARIKO_MEDALS)}
+
+
+def kakariko_burning_applied(gamedata_raw):
+    """True when ``gamedata_raw`` holds the patched programs of :func:`kakariko_burning_on_medallions`."""
+    from oot_rando.formats import byml_codec
+    from oot_rando.patching.soul_adapter import murmur3
+    entries = {int(e['Hash']): e for e in byml_codec.load(gamedata_raw)['root']['Data']['BoolExp']}
+    return all(murmur3(name) in entries
+               and [[int(v) for v in step] for step in entries[murmur3(name)]['Values']] == patched
+               for name, (_, patched) in _kakariko_programs().items())
+
+
+def light_arrows_on_medallions(raw):
+    """Keep the adult temple area; enable it on both medals until Zelda's abduction."""
+    import copy
+    import uuid
+    import ainb
+    from oot_rando.patching.ap_mailbox import ainb_to_binary
+    document = ainb.AINB.from_binary(raw).as_dict()
+    nodes = document['Nodes']
+    if (len(nodes) != 5 or [n['Name'] for n in nodes] != [
+            'ActorLogicEventRequestActor', 'ActorLogicAreaActor',
+            'HoldChallengeCurrentStepCheckOrder', 'HoldActorObserverBySensorHitInfo', 'OperateAND']
+            or ainb.AINB.from_binary(ainb_to_binary(copy.deepcopy(document))).as_dict() != document):
+        raise ValueError('Unexpected Light Arrows trigger module (already patched?).')
+    inputs = nodes[2]['Parameters']['Inputs']['String']
+    if [(p['Name'], p['Default Value']) for p in inputs] != [
+            ('ChallengeName', 'Work/Challenge/AllSage.game__challenge__Challenge.gyml'),
+            ('ChallengeStepName', 'Step02')]:
+        raise ValueError('Unexpected Light Arrows story gate.')
+
+    expected = copy.deepcopy(document)
+    nodes = expected['Nodes']
+
+    def query(index, name, inputs, outputs, queries=()):
+        # Stable GUIDs keep a seed's generated files reproducible.
+        return {'Node Type': 'UserDefined', 'Node Index': index, 'Name': name,
+                'GUID': str(uuid.uuid5(uuid.NAMESPACE_URL, 'oot-rando/light-arrows/' + str(index))),
+                'Flags': ['Is Query'], 'Queries': list(queries), 'Attachments': [], 'Properties': {},
+                'Parameters': {'Inputs': inputs, 'Outputs': outputs}, 'XLink Actions': [], 'Plugs': {}}
+
+    def flag(index, name):
+        return query(index, 'HoldGameDataGetBoolSimple', {
+            'Int': [{'Name': 'GameDataArrayIndex', 'Default Value': -1, 'Node Index': -1,
+                     'Output Index': 0, 'Flags': ['Uses Default', 'Is Output']}],
+            'String': [{'Name': 'GameDataNameBool', 'Default Value': name, 'Node Index': -1,
+                        'Output Index': 0, 'Flags': ['Uses Default']}]},
+            {'Bool': [{'Name': 'Bool', 'Is Output': True}]})
+
+    nodes[2] = flag(2, LIGHT_ARROWS_PLAYED)
+    nodes.extend(flag(i, name) for i, name in zip((5, 6), LIGHT_ARROWS_MEDALS))
+    inverse = query(7, 'InvBool.module', {'Bool': [
+        {'Name': 'BoolMulti', 'Default Value': False, 'Node Index': 2, 'Output Index': 0, 'Flags': []},
+        {'Name': 'UpdateOnce', 'Default Value': False, 'Node Index': -1, 'Output Index': 0,
+         'Flags': ['Uses Default', 'Is Output']}]}, {'Bool': [{'Name': 'InvBool', 'Is Output': True}]}, (2,))
+    inverse['Flags'].append('Is Module')
+    inverse['Plugs'] = {'Generic': [{'Node Index': 2, 'Name': 'BoolMulti'}]}
+    nodes.append(inverse)
+    ready = copy.deepcopy(nodes[4])
+    ready.update({'Node Index': 8, 'GUID': str(uuid.uuid5(uuid.NAMESPACE_URL, 'oot-rando/light-arrows/8')),
+                  'Queries': [5, 6, 7],
+                  'Plugs': {'Generic': [{'Node Index': 5, 'Name': 'BoolMulti'}]}})
+    ready['Parameters']['Inputs']['Bool'][0]['Sources'] = [
+        {'Node Index': i, 'Output Index': 0, 'Flags': []} for i in (5, 6, 7)]
+    nodes.append(ready)
+    # The area's existence and the event request use the same readiness condition.
+    area = next(p for p in nodes[1]['Parameters']['Inputs']['Bool'] if p['Name'] == 'Logic_Create')
+    area.update({'Node Index': 8, 'Output Index': 1})
+    nodes[1]['Queries'] = [8]
+    nodes[1]['Plugs']['Generic'][1]['Node Index'] = 8
+    nodes[4]['Queries'] = [3, 8]
+    nodes[4]['Parameters']['Inputs']['Bool'][0]['Sources'][1].update({'Node Index': 8, 'Output Index': 1})
+    expected['Modules'].append({'Path': 'InvBool.module.ainb', 'Category': 'Logic', 'Instance Count': 1})
+    result = ainb_to_binary(copy.deepcopy(expected))
+    if ainb.AINB.from_binary(result).as_dict() != expected:
+        raise ValueError('Light Arrows trigger wrongly rewritten.')
+    return result, {'module': LIGHT_ARROWS_MODULE, 'medallions': list(LIGHT_ARROWS_MEDALS),
+                    'played': LIGHT_ARROWS_PLAYED}
 
 
 def pedestal_after_first_adult_arrival(raw):
@@ -843,7 +1079,8 @@ CLOCK_FLAG = 'HavePlayedEvent.Dm_HrlField_0020'
 
 def story_start_values():
     """GameData values written at the end of the new-game opening (full mode)."""
-    return {CLOCK_FLAG: True}
+    from oot_rando.patching.owl_advice import start_values
+    return {CLOCK_FLAG: True, **start_values()}
 
 
 # --- First arrivals never move a quest back --------------------------------------
@@ -868,13 +1105,32 @@ def story_start_values():
 # * Hyrule Field / castle -> Market (``Goto_HyruleCastle_EntryMarket``):
 #   ``Goto_HyruleCastle`` to ``Step02_01``, even once complete.
 #
+#
+# The Water quest's own flow (``Get_StoneOfWater``) has the same trap: three scenes
+# that vanilla always plays before Ruto's Letter is read move the quest back from
+# ``Step07`` (King Zora aside) and King Zora returns in front of the fountain (Discord
+# 19/11, after leaving Zora's Domain):
+#
+# * ``StoneOfWater_TalkWithImpa`` (Impa at the castle, Zelda met late): ``Step01``
+#   with no check at all, even once complete;
+# * ``StoneOfWater_TalkKaepora_ZoraRiver`` (child Zora River owl, passed after the
+#   domain was reached through the Lost Woods): ``Step02`` while Impa is not met;
+# * ``StoneOfWater_ClearDivingGame`` (diving game won after the letter): ``Step05``
+#   once past ``Step03``.
+#
+# Every request before ``Step07`` in that flow is guarded (the king's ``Step01`` talk,
+# the letter picked up and read included): none may move the quest back.
+#
 # Each request is now skipped once the quest is past its step or complete (one guard
 # per expression, :func:`oot_rando.patching.quest_guard.guard_requests`). The scenes
 # themselves still play. Not validated in game.
 ARRIVE_FLOW = 'Event/EventFlow/Dm_SY_BancChangeArrive.bfevfl.zs'
 CASTLE_FLOW = 'Event/EventFlow/Goto_HyruleCastle.bfevfl.zs'
+WATER_FLOW = 'Event/EventFlow/Get_StoneOfWater.bfevfl.zs'
+WATER_EARLY_STEPS = ('Step01', 'Step02', 'Step04', 'Step05', 'Step05_01', 'Step06')
 FIRST_ARRIVAL_REQUESTS = {
     ARRIVE_FLOW: (('Get_StoneOfWater', ('Step03', 'Step03_Impa')), ('SageOfSpirit', ('Step04',))),
+    WATER_FLOW: (('Get_StoneOfWater', WATER_EARLY_STEPS),),
     FIRE_STONE_FLOW: (('Get_StoneOfFire', ('DeathMtTrailNpc',)),),
     CASTLE_FLOW: (('Goto_HyruleCastle', ('Step02_01',)),),
 }
@@ -914,7 +1170,11 @@ def keep_first_arrivals_forward(read_flow, challenges_raw):
     return files, report
 
 
+from oot_rando.patching.owl_advice import FLOW_FIXES as OWL_FLOW_FIXES
+
 FLOW_FIXES = (
+    *OWL_FLOW_FIXES,
+    ('Event/EventFlow/AllSage.bfevfl.zs', 'prelude_quest_forward', prelude_keeps_later_sage_progress),
     (FIRE_STONE_FLOW, 'darunia_gift', darunia_gift_after_dungeon),
     (DARUNIA_GIFT_FLOW, 'fire_quest_forward', keep_fire_quest_forward),
     (EPONA_FLOW, 'second_malon', second_malon_after_talon),

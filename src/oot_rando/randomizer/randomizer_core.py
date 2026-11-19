@@ -19,7 +19,7 @@ from oot_rando.formats.inspect_resources import Byml, decompress, dictionaries, 
 from oot_rando.patching.randomize_kokiri import BUILD, TITLE, MAP, RESTBL, CHESTS, POOL, check_supported_game, patch_map
 from oot_rando.patching.qol_patches import (STATIC, STATIC_SOURCE_SHA256, DYNAMIC_SOURCE_SHA256, PHYSICS, EVENT_SETTINGS,
                          patch_forest, patch_baked_wall, sha256, cutscene_files, patch_dialogues,
-                         area_presentation_files, quick_chest, CHEST_FLOW,
+                         quick_chest, CHEST_FLOW,
                          quick_small_chest, SMALL_CHEST_FLOW,
                          KOKIRI_SHOP_MAPS, KOKIRI_SHOP_PACKS, open_kokiri_shop,
                          release_kokiri_shop_goods, BOMB_LIFT_PACKS, free_bomb_lift,
@@ -34,7 +34,7 @@ from oot_rando.game.resource_allocations import allocation, grow_resources, add_
 from oot_rando.formats.byml_writer import lift_actors, patch_strings
 from oot_rando.logic import rando_options
 
-GENERATOR_VERSION = '0.11.0'
+GENERATOR_VERSION = '0.11.4'
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
 STARTING_ITEMS = ('Item_BulletBag_Small', 'Item_Quiver_Small')
@@ -88,8 +88,8 @@ class Settings:
     excluded_checks: list[str] = field(default_factory=list)
     avoid_vanilla: bool = True
     open_forest: bool = True
-    # Omitted from ``to_dict`` while False. ``skip_locked_cutscenes`` covers the intro,
-    # every other locked cutscene and the area presentations.
+    # Omitted from ``to_dict`` while False. ``skip_locked_cutscenes`` covers the intro
+    # and every other locked cutscene (area presentations never play: always on).
     skip_locked_cutscenes: bool = False
     skip_auto_dialogues: bool = False
     # Big chests: lid animation, Link holds the item up, no chest performance.
@@ -472,6 +472,10 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             story = {}
             for path, key, fix in story_fixes.FLOW_FIXES:
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
+            # Full bottles (Ruto's Letter...) on a shelf need no empty bottle (patching/shop_bottles.py).
+            from oot_rando.patching.shop_bottles import DISPLAY_SHOP_FLOW, patch_display_shop
+            extra_raw[DISPLAY_SHOP_FLOW], story['shop_full_bottles'] = patch_display_shop(
+                extra_raw.get(DISPLAY_SHOP_FLOW) or decompress(read(DISPLAY_SHOP_FLOW), d))
             # First arrivals (area presentations) never move a quest back.
             from oot_rando.patching.quest_guard import CHALLENGES as CHALLENGE_TABLE
             arrival_flows, story['first_arrivals'] = story_fixes.keep_first_arrivals_forward(
@@ -484,9 +488,30 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             raw_maps[story_fixes.ZORA_RIVER_MAP] = patch_strings(river, wall_edits)
             story['zora_river_wall'] = {'map': story_fixes.ZORA_RIVER_MAP, 'actors': wall_actors,
                                         'presence': story_fixes.ZORA_RIVER_WALL_PRESENCE}
+            # Same walls in the child map, adult-only there.
+            child_river = (raw_maps.get(story_fixes.ZORA_RIVER_CHILD_MAP)
+                           or decompress(read(story_fixes.ZORA_RIVER_CHILD_MAP), d))
+            wall_edits, wall_actors = story_fixes.zora_river_child_wall_edits(Byml(child_river).root)
+            raw_maps[story_fixes.ZORA_RIVER_CHILD_MAP] = patch_strings(child_river, wall_edits)
+            story['zora_river_child_wall'] = {'map': story_fixes.ZORA_RIVER_CHILD_MAP, 'actors': wall_actors,
+                                              'presence': story_fixes.ZORA_RIVER_WALL_PRESENCE,
+                                              'negation': True}
+            # Adult Link can longshot onto the Lake Hylia island tree before the Water Temple.
+            lake = raw_maps.get(story_fixes.LAKE_TREE_MAP) or decompress(read(story_fixes.LAKE_TREE_MAP), d)
+            tree_edits, tree_actor = story_fixes.lake_tree_wall_edits(Byml(lake).root)
+            raw_maps[story_fixes.LAKE_TREE_MAP] = patch_strings(lake, tree_edits)
+            story['lake_tree_wall'] = {'map': story_fixes.LAKE_TREE_MAP, 'actor': tree_actor,
+                                       'presence': story_fixes.LAKE_TREE_WALL_PRESENCE_ENTRY['FlagName']}
             # Adult Link can put the Master Sword back before the Forest Temple (raw file).
             extra_raw[story_fixes.PEDESTAL_MODULE], story['pedestal'] = story_fixes.pedestal_after_first_adult_arrival(
                 extra_raw.get(story_fixes.PEDESTAL_MODULE) or read(story_fixes.PEDESTAL_MODULE))
+            extra_raw[story_fixes.LIGHT_ARROWS_MODULE], story['light_arrows_medallions'] = story_fixes.light_arrows_on_medallions(
+                extra_raw.get(story_fixes.LIGHT_ARROWS_MODULE) or read(story_fixes.LIGHT_ARROWS_MODULE))
+            extra_raw[story_fixes.PRELUDE_MODULE], story['prelude_medallion'] = story_fixes.prelude_on_forest_medallion(
+                extra_raw.get(story_fixes.PRELUDE_MODULE) or read(story_fixes.PRELUDE_MODULE))
+            # Sheik in Kakariko: the burning scene on the three medallions, not the three sages.
+            extra_raw[GAMEDATA], story['kakariko_burning_medallions'] = story_fixes.kakariko_burning_on_medallions(
+                extra_raw.get(GAMEDATA) or decompress(read(GAMEDATA), d))
             # Zelda's escape on the three stones, checked at every item get.
             extra_raw[ACTION_GUIDE_FLOW], story['zelda_escape_item_get'] = story_fixes.zelda_escape_on_item_get(
                 extra_raw[ACTION_GUIDE_FLOW])
@@ -543,7 +568,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             # Maps/compasses "start with", keys "removed": dungeon data written at the start.
             from oot_rando.patching.event_patch import add_start_values
             from oot_rando.patching.key_adapter import start_dungeon_values, check_start_values
-            start_values = dict(start_dungeon_values(settings.full), **story_fixes.story_start_values())
+            from oot_rando.patching import area_presentations
+            start_values = dict(start_dungeon_values(settings.full), **story_fixes.story_start_values(),
+                                **area_presentations.start_values())
             if start_values:
                 check_start_values(extra_raw[GAMEDATA], start_values)
                 extra_raw[opening] = add_start_values(extra_raw[opening], 'RandoCollected_Event3', start_values)
@@ -573,10 +600,15 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             if settings.full.get('big_poe_count', 10) != 10:
                 skips['big_poes'] = settings.full['big_poe_count']
         current_flow = lambda path: extra_raw[path] if path in extra_raw else decompress(read(path), d)
-        if settings.skip_locked_cutscenes:
-            report('Skippable area presentations…')
-            flows, skips['area_presentations'] = area_presentation_files(current_flow)
-            extra_raw.update(flows)
+        # Every seed: area presentations never play (patching/area_presentations.py):
+        # pre-marked at the start in full mode, else left on their first frame.
+        report('Area presentations skipped…')
+        from oot_rando.patching.area_presentations import presentation_files
+        flows, skips['area_presentations'] = presentation_files(current_flow, premarked=settings.full is not None)
+        extra_raw.update(flows)
+        if settings.full is not None:
+            from oot_rando.patching.area_presentations import start_values as presentation_start_values
+            skips['presentation_flags'] = presentation_start_values()
         if settings.skip_chest_cutscenes or (settings.full or {}).get('fast_chests'):
             report('Chests without cutscene…')
             extra_raw[CHEST_FLOW], skips['quick_chest'] = quick_chest(current_flow(CHEST_FLOW))
@@ -595,11 +627,11 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             flows, skips['cutscene_windows'] = cutscene_window_files(original_flow, flow_names, candidates)
             extra_raw.update(flows)
         skips.update(complete_event_info(extra_raw, nup, members, d, read))
-        if settings.skip_locked_cutscenes or settings.skip_auto_dialogues:
-            # In place on the vanilla table (same size); chest rows are added after.
-            report('Dialogues and area presentations skippable with + …')
-            extra_raw[EVENT_SETTINGS], skips['dialogues'] = patch_dialogues(
-                decompress(read(EVENT_SETTINGS), d), settings.skip_auto_dialogues, settings.skip_locked_cutscenes)
+        # In place on the vanilla table (same size); chest rows are added after. The
+        # area presentation rows always pause like the fountains (their skip windows).
+        report('Dialogues and area presentations skippable with + …')
+        extra_raw[EVENT_SETTINGS], skips['dialogues'] = patch_dialogues(
+            decompress(read(EVENT_SETTINGS), d), settings.skip_auto_dialogues, True)
         plain_raw = {}
         mailbox_items = ap_records(settings)
         if mailbox_items:
@@ -848,6 +880,12 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
                                          lifts.get(resource, {}))
     patch_repeatable_sources(repeatables, maps, raw_maps)
     modified, new = {}, {}
+    if settings.full.get('shuffle_master_sword'):
+        from oot_rando.patching.master_sword_item import build_files as build_master_sword_files
+        master_modified, master_new = build_master_sword_files(
+            lambda path: decompress(read(path), dictionaries_))
+        modified.update(master_modified)
+        new.update(master_new)
     if plan['souls']['items']:
         report('Building souls: items, tables, flags and texts…')
         messages = sorted(m for m in members if m.startswith('Mals/') and '.Product.110.' in m)
@@ -1044,6 +1082,14 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         if raw is None:
             raw = decompress(read(GAMEDATA), dictionaries_)
         modified[GAMEDATA], plan['repeatable_flags'] = register_repeatable_flags(raw, repeatables)
+    from oot_rando.patching import special_item_shuffle
+    plan['master_sword_flows'] = {}
+    for path in special_item_shuffle.flow_paths(settings.full, members):
+        raw = modified.get(path)
+        if raw is None:
+            raw = decompress(read(path), dictionaries_)
+        modified[path], details = special_item_shuffle.patch_flow(path, raw)
+        plan['master_sword_flows'][path] = details
     plan['derived_actors'] = derived + sorted(repeatable_actors)
     plan['logic_world_version'] = data.version
     plan['logic_world_sha256'] = data.fingerprint()

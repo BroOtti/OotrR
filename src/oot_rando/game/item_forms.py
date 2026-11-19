@@ -95,7 +95,8 @@ MODEL_BOTTOM = {
     'Item_PoacherSaw': -0.031, 'Item_Prescription': -0.210, 'Item_Quiver_Large': -0.064, 'Item_Range_Bow': -0.056,
     'Item_Range_SlingShot': -0.090, 'Item_Shield_Mirror': -0.057, 'Item_StickBag_Large': -0.037,
     'Item_Sword_Biggoron': -0.067, 'Item_Sword_BrokenGiant': -0.067, 'Item_Sword_Giant': -0.262,
-    'Item_Sword_Kokiri': -0.040, 'Item_Token_Gerudo': -0.268, 'Item_Wallet_Medium': -0.037,
+    'Item_Sword_Kokiri': -0.040, 'Item_Rando_MasterSword': -0.051,
+    'Item_Token_Gerudo': -0.268, 'Item_Wallet_Medium': -0.037,
     'TBox_ArrowBundle_Large': -0.164, 'TBox_ArrowBundle_Medium': -0.093, 'TBox_ArrowBundle_Small': -0.102,
     'TBox_DekuSeedBundle': -0.130, 'TBox_Shield_Deku': -0.036, 'TBox_Shield_Hylian': -0.078,
 }

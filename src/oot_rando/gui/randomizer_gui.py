@@ -36,7 +36,7 @@ GAME_OPTIONS = [('randomize_chests', 'Randomize the four Kokiri chests (child an
                 ('avoid_vanilla', 'Avoid vanilla rewards when the pool allows it'),
                 ('open_forest', 'Open the way from Kokiri Forest to Hyrule Field'),
                 ('skulltulas_always_present', 'Night-only gold skulltulas present day and night')]
-SKIP_OPTIONS = [('skip_locked_cutscenes', 'Skippable cutscenes: intro, title screen demo, end credits and area presentations'),
+SKIP_OPTIONS = [('skip_locked_cutscenes', 'Skippable cutscenes: intro, title screen demo and end credits'),
                 ('skip_auto_dialogues', 'Automatic dialogues skippable with + (minigames, Navi: 12 sequences)'),
                 ('skip_chest_cutscenes', 'Chests (big and small) without cutscene: the lid opens and the item is obtained')]
 OPTIONS = GAME_OPTIONS + SKIP_OPTIONS
@@ -53,6 +53,7 @@ TRACKER_KINDS = {
     'vanilla_boss': 'Boss', 'vanilla_bossheart': 'Heart Container', 'vanilla_cutscene': 'Cutscene',
     'vanilla_rupeetower': 'Rupee tower', 'full_boss': 'Dungeon reward', 'full_bossheart': 'Boss heart container',
     'full_fairy': 'Great fairy', 'full_quest': 'Quest reward',
+    'full_master_sword': 'Master Sword', 'full_gerudo_card': 'Gerudo Membership Card',
 }
 
 OPTION_COPY = {
@@ -172,7 +173,8 @@ SETTING_GROUPS = (
     ('Logic and accessibility', '',
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
     ('Item pool', 'What is shuffled and what you start with.',
-     ['item_pool_value', 'start_inventory_from_pool', 'shuffle_kokiri_sword', 'shuffle_remake_items']),
+     ['item_pool_value', 'start_inventory_from_pool', 'shuffle_kokiri_sword',
+      'shuffle_master_sword', 'shuffle_gerudo_card', 'shuffle_remake_items']),
     ('Shuffled locations', 'Where items can be found.',
      ['shuffle_chests', 'chest_matching', 'tokensanity', 'shuffle_freestanding_items', 'shuffle_npc_gifts',
       'shuffle_quest_rewards', 'shuffle_boss_rewards', 'shuffle_great_fairies', 'shuffle_song_items',
@@ -314,7 +316,7 @@ class Application:
         self.connection_status = tk.StringVar(value='Tracker not connected')
         self.tracker_summary = tk.StringVar(value='Open a seed to show its locations.')
         self.seed_chip = tk.StringVar(value='No seed open')
-        self.sidebar = theme.Sidebar(root, self.fonts, self.show_page, footer=f'Version {GENERATOR_VERSION}')
+        self.sidebar = theme.Sidebar(root, self.fonts, self.show_page, footer=f'Version {APP_VERSION}')
         self.sidebar.pack(side='left', fill='y')
         outer = ttk.Frame(root, padding=(34, 26, 34, 18), style='Page.TFrame')
         outer.pack(side='left', fill='both', expand=True)
@@ -1715,6 +1717,9 @@ class Application:
                 label = 'Done' if completed else {'available': 'Available', 'partial': 'Partial zone', 'blocked': 'Blocked', 'unknown': 'Unknown'}.get(access, 'Unknown')
                 if completed and state.get('source') == 'manual':
                     label += ' (manual)'
+                elif not completed and state.get('missing_souls'):
+                    from oot_rando.patching.soul_adapter import soul_name
+                    label += ' • soul: ' + ', '.join(soul_name(s, False) for s in state['missing_souls'])
                 tree.insert(zones[region], 'end', iid=check['id'], text=name, values=(label, reward, kind), tags=('done' if completed else access,))
                 visible += 1
             tree.bind('<<TreeviewOpen>>', lambda event, widget=tree: self.remember_zone(widget, True))
