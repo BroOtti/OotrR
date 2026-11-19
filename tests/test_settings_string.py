@@ -38,12 +38,14 @@ class SeedStringTests(unittest.TestCase):
         settings = full_settings()
         text = settings_string.encode(settings)
         payload = json.loads(zlib.decompress(base64.urlsafe_b64decode(text[len(settings_string.PREFIX):] + '===')))
-        payload['v'] = '0.9.0'
-        historical = settings_string.PREFIX + base64.urlsafe_b64encode(zlib.compress(json.dumps(payload).encode())).decode()
-        decoded, version = settings_string.decode(historical)
-        self.assertEqual(decoded.to_dict(), settings.to_dict())
-        self.assertEqual(version, '0.9.0')
-        self.assertNotEqual(version, GENERATOR_VERSION)
+        for historical_version in ('0.9.0', '0.10.0'):
+            with self.subTest(version=historical_version):
+                payload['v'] = historical_version
+                historical = settings_string.PREFIX + base64.urlsafe_b64encode(zlib.compress(json.dumps(payload).encode())).decode()
+                decoded, version = settings_string.decode(historical)
+                self.assertEqual(decoded.to_dict(), settings.to_dict())
+                self.assertEqual(version, historical_version)
+                self.assertNotEqual(version, GENERATOR_VERSION)
 
     def test_rejects_garbage(self):
         good = settings_string.encode(Settings('abc'))

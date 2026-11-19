@@ -81,7 +81,10 @@ def verify(nup_path, seed_dir):
     from oot_rando.randomizer import full_randomizer
     plan = full_randomizer.replay(World(), manifest['settings']['full'], copy.deepcopy(groups),
                                   copy.deepcopy(enemies), {p['id']: p['ap_item'] for p in full},
-                                  manifest['settings']['open_forest'], extra=copy.deepcopy(extra))
+                                  manifest['settings']['open_forest'], extra=copy.deepcopy(extra),
+                                  # options drawn from the seed key (random key rings) must match
+                                  seed_key=(manifest['settings'].get('archipelago') or {}).get('seed_key')
+                                  or manifest['seed_id'])
     tokens, natives = plan['progressive']['tokens'], plan['progressive']['natives']
     for placement in full:
         reward = placement.get('reward_actor', placement['actor'])
@@ -186,6 +189,10 @@ def verify(nup_path, seed_dir):
             if details != report_expected or (seed_dir / 'romfs' / module).read_bytes() != expected:
                 raise ValueError('Unexpected medallion cutscene trigger: ' + module)
             report['story_fixes'] = report.get('story_fixes', 0) + 1
+    if (manifest.get('skips', {}).get('story_fixes') or {}).get('kakariko_burning_medallions') is not None:
+        if not story_fixes.kakariko_burning_applied(out(GAMEDATA)):
+            raise ValueError('Unexpected Kakariko burning condition in the game data.')
+        report['story_fixes'] = report.get('story_fixes', 0) + 1
     chest_flows = {}
     for record in chest_records:
         chest_flows.setdefault(record['flow'], []).append(record)
@@ -229,7 +236,9 @@ def verify(nup_path, seed_dir):
             if path in {flow_path(name) for name in skips.get('area_presentations', {})}:
                 if path not in {flow_path(name) for name in AREA_PRESENTATIONS}:
                     raise ValueError('Unknown area presentation: ' + path)
-                original = add_skip_window(original)[0]
+                from oot_rando.patching.area_presentations import expected_flow
+                name = path[len('Event/EventFlow/'):-len('.bfevfl.zs')]
+                original = expected_flow(name, original, skips['area_presentations'][name])
                 report['comfort_flows'] = report.get('comfort_flows', 0) + 1
             if path == CHEST_FLOW and skips.get('quick_chest'):
                 original = quick_chest(original)[0]
@@ -262,10 +271,8 @@ def verify(nup_path, seed_dir):
                 received = set(mailbox_key_items((skips.get('ap_mailbox') or {}).get('items', [])))
                 placed = {p['ap_item'] for p in full
                           if p['ap_item'].startswith('Small Key Ring (')
-                          or (p['ap_item'].startswith(('Boss Key (', 'Map (', 'Compass ('))
-                              and p.get('reward_actor', p['actor']).removeprefix('Obj_Rando_').removeprefix('Obj_RandoWater_')
-                              .removeprefix('Shop_Rando_').startswith(('Item_BossKey_', 'Item_Map_',
-                                                                       'Item_Compass_')))}
+                          or is_key_actor(p.get('reward_actor', p['actor']).removeprefix('Obj_Rando_').removeprefix('Obj_RandoWater_')
+                                          .removeprefix('Shop_Rando_'))}
                 records = key_records(received | placed)
                 if records != skips['key_items']['records']:
                     raise ValueError('Dungeon keys differ from the spoiler.')
@@ -403,6 +410,12 @@ def verify(nup_path, seed_dir):
                 if 'clock' in (manifest.get('skips', {}).get('story_fixes') or {}):
                     from oot_rando.patching.story_fixes import story_start_values
                     values = dict(values, **story_start_values())
+                presentation_flags = manifest.get('skips', {}).get('presentation_flags') or {}
+                if presentation_flags:
+                    from oot_rando.patching.area_presentations import start_values as presentation_start_values
+                    if presentation_flags != presentation_start_values():
+                        raise ValueError('Area presentation flags differ from the spoiler.')
+                    values = dict(values, **presentation_flags)
                 from oot_rando.patching import child_castle_skip
                 if child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
                     values = dict(values, **child_castle_skip.START_VALUES)
@@ -510,6 +523,30 @@ def verify(nup_path, seed_dir):
                         or wall_fix['presence'] != ZORA_RIVER_WALL_PRESENCE_ENTRY['FlagName']):
                     raise ValueError("Unexpected Zora's River wall presence: " + path)
                 a2['Presence'] = dict(ZORA_RIVER_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
+            child_wall_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('zora_river_child_wall')
+            if (child_wall_fix and path == child_wall_fix['map'] and index in child_wall_fix['actors']
+                    and 'Presence' not in a2):
+                # Child map's river mouth walls only for adult Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (ZORA_RIVER_WALL, ZORA_RIVER_CHILD_WALLS,
+                                                            ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != ZORA_RIVER_WALL or a2.get('Hash') not in ZORA_RIVER_CHILD_WALLS
+                        or child_wall_fix['presence'] != ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY['FlagName']
+                        or child_wall_fix.get('negation') is not True):
+                    raise ValueError("Unexpected Zora's River wall presence: " + path)
+                a2['Presence'] = dict(ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
+            tree_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('lake_tree_wall')
+            if tree_fix and path == tree_fix['map'] and index == tree_fix['actor']:
+                # Lake Hylia island tree wall only for child Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (LAKE_TREE_WALL, LAKE_TREE_WALL_HASH,
+                                                            LAKE_TREE_WALL_VANILLA,
+                                                            LAKE_TREE_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != LAKE_TREE_WALL or a2.get('Hash') != LAKE_TREE_WALL_HASH
+                        or a2.get('Presence') != LAKE_TREE_WALL_VANILLA
+                        or tree_fix['presence'] != LAKE_TREE_WALL_PRESENCE_ENTRY['FlagName']):
+                    raise ValueError('Unexpected Lake Hylia tree wall presence: ' + path)
+                a2['Presence'] = dict(LAKE_TREE_WALL_PRESENCE_ENTRY)
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')

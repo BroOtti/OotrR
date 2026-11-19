@@ -143,6 +143,18 @@ def actor_kind(actor):
     return next((kind for prefix, kind in PREFIX_KIND.items() if actor.startswith(prefix)), None)
 
 
+def specific_actor(item):
+    """Dungeon-specific actor for experimental placement modes."""
+    if is_ring(item):
+        return ring_actor(item_folder(item))
+    if item.startswith('Boss Key ('):
+        return boss_actor(item_folder(item))
+    actor = dungeon_item_actor(item)
+    if actor is None:
+        raise ValueError('Not a dungeon item: ' + item)
+    return actor
+
+
 def actor_folder(actor):
     """Dungeon folder of a key actor (``Item_KeyRing_GTG`` → ``GerudoTrainingGround``), or None."""
     for prefix in PREFIX_KIND:

@@ -74,6 +74,7 @@ def enabled_sources(options):
                                 ('shop', 'shopsanity', 'off'), ('pots', 'shuffle_pots', 'off'),
                                 ('crates', 'shuffle_crates', 'off'), ('beehives', 'shuffle_beehives', False),
                                 ('bushes', 'shuffle_bushes', False), ('rocks', 'shuffle_rocks', False),
+                                ('trees', 'shuffle_trees', False),
                                 ('npc', 'shuffle_npc_gifts', False), ('boss', 'shuffle_boss_rewards', False),
                                 ('bossheart', 'shuffle_boss_rewards', False), ('fairy', 'shuffle_great_fairies', False),
                                 ('quest', 'shuffle_quest_rewards', False), ('scrub', 'shuffle_scrubs', 'off'),
@@ -103,6 +104,12 @@ def source_in_scope(entry, sources):
 CHILD_TRADE_LOCKED = ('HC Zeldas Letter',)
 
 
+def letter_removed(options):
+    """With the Kakariko gate open the letter has no use left (only the gate guard
+    reads it): it leaves the item pool and Zelda's gift is shuffled like the others."""
+    return options.get('open_kakariko') == 'open'
+
+
 # Child Hyrule Castle skipped (``skip_child_zelda``, patching/child_castle_skip.py):
 # the castle's gifts never play, its shuffled checks hold this item (Great Fairy apart).
 CASTLE_FOLDER = 'HyruleCastle'
@@ -119,8 +126,9 @@ def skipped_castle_check(entry):
 
 
 def kept_for_child_trade(entry, options):
-    return (options.get('shuffle_child_trade', 'vanilla') == 'vanilla' and entry.get('source') == 'quest'
-            and entry.get('kind') == 'exact' and entry['ap'][0] in CHILD_TRADE_LOCKED)
+    return (options.get('shuffle_child_trade', 'vanilla') == 'vanilla' and not letter_removed(options)
+            and entry.get('source') == 'quest' and entry.get('kind') == 'exact'
+            and entry['ap'][0] in CHILD_TRADE_LOCKED)
 
 
 class DetRandom:
@@ -155,7 +163,8 @@ def vname(group_id):
 
 def ap_settings(options, open_forest):
     values = {name: options[name] for name in ('open_kakariko', 'open_door_of_time', 'zora_fountain',
-                                               'gerudo_fortress', 'starting_age', 'bridge', 'trials',
+                                               'gerudo_fortress', 'open_gerudo_valley_bridge', 'starting_age',
+                                               'bridge', 'trials',
                                                'shuffle_ganon_bosskey', 'big_poe_count', 'chicken_count',
                                                'free_scarecrow', 'shuffle_child_trade', 'logic_rules',
                                                'shuffle_master_sword', 'shuffle_gerudo_card',
@@ -247,13 +256,14 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
 
     # --- key rings and dungeon-specific boss keys (key_adapter) ---------------
     from oot_rando.patching.key_adapter import RING_DUNGEONS, BOSS_KEY_DUNGEONS, ring_item, small_key_item
-    ring_folders = sorted(RING_DUNGEONS) if options['key_rings'] == 'all' else []
+    ring_folders = key_ring_folders(options, seed_key)
     ring_keys = {small_key_item(folder): ring_item(folder) for folder in ring_folders}
     specific_boss = options['shuffle_bosskeys'] in ('any_dungeon', 'keysanity')
     boss_keys = ({f'Boss Key ({FOLDER_DUNGEON[f]})' for f in BOSS_KEY_DUNGEONS} if specific_boss else set())
     # A ring counts as every small key of its dungeon (logic.bundles).
     logic.bundles.update({ring_item(f): (small_key_item(f), RING_DUNGEONS[f]) for f in ring_folders})
     relevant |= set(ring_keys.values())
+    ring_dungeon_keys = {small_key_item(folder) for folder in RING_DUNGEONS}
     # "Removed" keys: every key is held from the start (start_dungeon_values), the
     # key chests hold filler instead.
     from oot_rando.patching.key_adapter import start_logic_items
@@ -269,6 +279,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
             return False
         if item in ring_keys:
             return True       # the ring replaces every small key of the dungeon
+        if item in ring_dungeon_keys:
+            return item in removed_keys   # no ring for this dungeon: generic keys stay in place
         if item.startswith('Small Key ('):
             return item in key_dungeons or item in removed_keys
         if item in boss_keys:
@@ -276,7 +288,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
         if item.startswith('Boss Key ('):
             return (item in key_dungeons or item in removed_keys) and 'Ganons Castle' not in item
         if is_mapcompass(item):
-            return options['shuffle_mapcompass'] in ('dungeon', 'remove', 'startwith')
+            return options['shuffle_mapcompass'] in ('dungeon', 'remove', 'startwith', 'any_dungeon',
+                                                     'overworld', 'keysanity')
         if item == 'Kokiri Sword':
             return options['shuffle_kokiri_sword']
         if item.startswith('Remake: '):
@@ -414,6 +427,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
             item = SHOP_FILLER  # the displaced purchase stays sold in other slots
         if item in ring_keys:
             item = 'Rupees (5)'
+        if item == 'Zeldas Letter' and letter_removed(options):
+            item = POOL_FILLER
         pool.append(item)
     for ring in sorted(ring_keys.values()):
         fillers = [i for i in pool if i not in relevant and not is_mapcompass(i) and not is_key(i)]
@@ -479,6 +494,8 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
             rule = options['shuffle_bosskeys']
         elif is_key(item) or (is_mapcompass(item) and options['shuffle_mapcompass'] == 'dungeon'):
             rule = 'dungeon'
+        elif is_mapcompass(item) and options['shuffle_mapcompass'] in ('any_dungeon', 'overworld'):
+            rule = options['shuffle_mapcompass']
         else:
             continue
         if rule != 'keysanity':
@@ -639,6 +656,24 @@ def plan(data, options, groups, enemies, seed_key, open_forest=True, progress=No
 # Starting items that cannot be handed over silently at the end of the opening:
 # dungeon items (generic actors, or a key count only applied at the next item get).
 STARTING_UNSUPPORTED = ('Map (', 'Compass (', 'Small Key (', 'Boss Key (', 'Small Key Ring (', 'Remake: ')
+
+
+def key_ring_folders(options, seed_key):
+    """Dungeon folders whose small keys become a key ring."""
+    from oot_rando.patching.key_adapter import RING_DUNGEONS
+    from oot_rando.game.remake_world import FOLDER_DUNGEON
+    folders = sorted(RING_DUNGEONS)
+    mode = options['key_rings']
+    if mode == 'all':
+        return folders
+    if mode == 'choose':
+        return [f for f in folders if FOLDER_DUNGEON[f] in options['key_rings_list']]
+    if mode == 'random':
+        # Same draw in the Archipelago generation and in the application (same seed key).
+        rng = DetRandom(hashlib.sha256((seed_key + '\0key-rings-v1').encode()).digest())
+        chosen = [f for f in folders if rng.below(2)]
+        return chosen or [rng.choice(folders)]
+    return []
 
 
 def covered_by_start_values(item, options):
@@ -816,6 +851,10 @@ def _result(data, logic, options, matches, shuffled, placed, natives, sphere_of,
                 and options['shuffle_bosskeys'] in ('any_dungeon', 'keysanity')):
             from oot_rando.patching.key_adapter import boss_actor, item_folder
             canonical = boss_actor(item_folder(item))   # opens its own dungeon's boss door anywhere
+        if (item.startswith(('Map (', 'Compass (')) and 'Ganons Castle' not in item
+                and options['shuffle_mapcompass'] in ('any_dungeon', 'overworld', 'keysanity')):
+            from oot_rando.patching.key_adapter import specific_actor
+            canonical = specific_actor(item)   # sets its own dungeon's map / compass anywhere
         actor = _spot_actor(form_actor(canonical, entry.get('form', 'chest'), skulltula_drop=source == 'skulltula'),
                             entry)
         name = check_name(entry, gid)
@@ -860,7 +899,7 @@ def _result(data, logic, options, matches, shuffled, placed, natives, sphere_of,
                 'virtual': {name: list(members) for name, members in logic.virtual.items()}}}
 
 
-REPEATABLE = ('pots', 'bushes', 'rocks', 'crates', 'beehives')
+REPEATABLE = ('pots', 'bushes', 'rocks', 'crates', 'beehives', 'trees')
 
 
 def check_name(entry, gid, zone=None):
@@ -956,7 +995,7 @@ def _is_reward(item):
 SOURCE_LABELS = {'chest': 'chest', 'skulltula': 'skulltula', 'shop': 'shop', 'freestanding': 'freestanding',
                  'npc': 'NPC', 'boss': 'dungeon reward', 'bossheart': 'boss heart container',
                  'fairy': 'great fairy', 'quest': 'quest reward', 'scrub': 'business scrub', 'pots': 'pot', 'bushes': 'bush', 'rocks': 'rock', 'crates': 'crate',
-                 'beehives': 'beehive', 'song': 'song'}
+                 'beehives': 'beehive', 'song': 'song', 'trees': 'tree'}
 
 
 def _patches(entry):
@@ -979,6 +1018,9 @@ def _patches(entry):
     return result
 
 
-def replay(data, options, groups, enemies, placements, open_forest=True, extra=None):
-    """Independent re-check of finished placements (used by verify_full)."""
-    return plan(data, options, groups, enemies, 'replay', open_forest, forced=placements, extra=extra)
+def replay(data, options, groups, enemies, placements, open_forest=True, extra=None, seed_key='replay'):
+    """Independent re-check of finished placements (used by verify_full).
+
+    ``seed_key``: the generation's, when an option is drawn from it (random key rings).
+    """
+    return plan(data, options, groups, enemies, seed_key, open_forest, forced=placements, extra=extra)

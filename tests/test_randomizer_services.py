@@ -36,7 +36,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_previous_generator_seed_still_opens_without_changing_identity(self):
         with tempfile.TemporaryDirectory() as directory:
-            for version in ('0.9.0', '0.10.0'):
+            for version in ('0.9.0', '0.10.0', '0.11.0', '0.11.1', '0.11.2', '0.11.3', '0.11.4', '0.10.1'):
                 with self.subTest(version=version):
                     root = self.make_artifact(Path(directory) / version, 'same-settings')
                     path = root / 'manifest.json'
@@ -57,7 +57,8 @@ class ServiceTests(unittest.TestCase):
                     path = root / 'manifest.json'
                     manifest = json.loads(path.read_text(encoding='utf-8'))
                     historical = rando_options.defaults()
-                    for name in ('shuffle_master_sword',):
+                    for name in ('key_rings_list', 'open_gerudo_valley_bridge', 'shuffle_trees',
+                                 'shuffle_master_sword'):
                         historical.pop(name)
                     manifest['settings'].update(randomize_chests=False, full=historical)
                     identity = hashlib.sha256(json.dumps(
