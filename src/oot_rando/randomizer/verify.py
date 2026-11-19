@@ -179,6 +179,20 @@ def verify(nup_path, seed_dir):
             if murmur3(record['recv']) not in flags or murmur3(record['got']) not in flags:
                 raise ValueError('Missing Archipelago reception flag: ' + record['key'])
         report['ap_reception'] = len(expected)
+    from oot_rando.patching import story_fixes
+    for key, module, fix in (
+            ('light_arrows_medallions', story_fixes.LIGHT_ARROWS_MODULE, story_fixes.light_arrows_on_medallions),
+            ('prelude_medallion', story_fixes.PRELUDE_MODULE, story_fixes.prelude_on_forest_medallion)):
+        details = (manifest.get('skips', {}).get('story_fixes') or {}).get(key)
+        if details is not None:
+            expected, report_expected = fix(nup.read(members[module]))
+            if details != report_expected or (seed_dir / 'romfs' / module).read_bytes() != expected:
+                raise ValueError('Unexpected medallion cutscene trigger: ' + module)
+            report['story_fixes'] = report.get('story_fixes', 0) + 1
+    if (manifest.get('skips', {}).get('story_fixes') or {}).get('kakariko_burning_medallions') is not None:
+        if not story_fixes.kakariko_burning_applied(out(GAMEDATA)):
+            raise ValueError('Unexpected Kakariko burning condition in the game data.')
+        report['story_fixes'] = report.get('story_fixes', 0) + 1
     chest_flows = {}
     for record in chest_records:
         chest_flows.setdefault(record['flow'], []).append(record)
@@ -201,17 +215,30 @@ def verify(nup_path, seed_dir):
     if hooks != progressive_skip.get('hooks', {}):
         raise ValueError('Progressive token gifts differ from the spoiler.')
     soul_actors, soul_expressions_seen = set(), set()
+    from oot_rando.patching import special_item_shuffle
+    master_flows = special_item_shuffle.flow_paths(manifest['settings']['full'], members)
+    if set(master_flows) - set(manifest['files']):
+        raise ValueError('Missing Master Sword time travel flow.')
+    if set(manifest.get('skips', {}).get('master_sword_flows', {})) != set(master_flows):
+        raise ValueError('Master Sword flow reports differ from the settings.')
     window_context = [None, None]
     for path in sorted(manifest['files']):
         if path.startswith('Event/EventFlow/'):
             original = decompress(nup.read(members[path]), d)
+            if path in master_flows:
+                original, details = special_item_shuffle.patch_flow(path, original)
+                if details != manifest['skips']['master_sword_flows'][path]:
+                    raise ValueError('Unexpected Master Sword ownership guards: ' + path)
+                report['master_sword_flows'] = report.get('master_sword_flows', 0) + 1
             # Comfort patches, re-applied independently to the original flow.
             from oot_rando.patching.qol_patches import AREA_PRESENTATIONS, CHEST_FLOW, add_skip_window, flow_path, quick_chest
             skips = manifest.get('skips', {})
             if path in {flow_path(name) for name in skips.get('area_presentations', {})}:
                 if path not in {flow_path(name) for name in AREA_PRESENTATIONS}:
                     raise ValueError('Unknown area presentation: ' + path)
-                original = add_skip_window(original)[0]
+                from oot_rando.patching.area_presentations import expected_flow
+                name = path[len('Event/EventFlow/'):-len('.bfevfl.zs')]
+                original = expected_flow(name, original, skips['area_presentations'][name])
                 report['comfort_flows'] = report.get('comfort_flows', 0) + 1
             if path == CHEST_FLOW and skips.get('quick_chest'):
                 original = quick_chest(original)[0]
@@ -244,7 +271,7 @@ def verify(nup_path, seed_dir):
                 received = set(mailbox_key_items((skips.get('ap_mailbox') or {}).get('items', [])))
                 placed = {p['ap_item'] for p in full
                           if p['ap_item'].startswith('Small Key Ring (')
-                          or is_key_actor(p.get('reward_actor', p['actor']).removeprefix('Obj_Rando_')
+                          or is_key_actor(p.get('reward_actor', p['actor']).removeprefix('Obj_Rando_').removeprefix('Obj_RandoWater_')
                                           .removeprefix('Shop_Rando_'))}
                 records = key_records(received | placed)
                 if records != skips['key_items']['records']:
@@ -272,6 +299,21 @@ def verify(nup_path, seed_dir):
                 if path == fixed_path and key in (skips.get('story_fixes') or {}):
                     original = fix(original)[0]
                     report['story_fixes'] = report.get('story_fixes', 0) + 1
+            if path in ((skips.get('story_fixes') or {}).get('child_castle') or {}):
+                from oot_rando.patching import child_castle_skip
+                from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
+                if not child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
+                    raise ValueError('Child castle guards without the option: ' + path)
+                original = child_castle_skip.guard_flow(
+                    path, original, challenge_steps(decompress(nup.read(members[CHALLENGES]), d)))[0]
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
+            if path in ((skips.get('story_fixes') or {}).get('child_castle_kokiri') or {}):
+                # Kokiri talks waiting for the Deku Tree, not for Zelda (child_castle_skip).
+                from oot_rando.patching import child_castle_skip
+                if not child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
+                    raise ValueError('Kokiri castle state fix without the option: ' + path)
+                original = child_castle_skip.kokiri_talk(original)[0]
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             if (path in story_fixes.FIRST_ARRIVAL_REQUESTS
                     and path in ((skips.get('story_fixes') or {}).get('first_arrivals') or {})):
                 from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
@@ -318,6 +360,10 @@ def verify(nup_path, seed_dir):
                     original = big_poes.patch_flow(original, skips['big_poes'])
                     report['big_poes'] = skips['big_poes']
             song_flows = skips.get('songs') or {}
+            from oot_rando.patching.song_adapter import TEACHING_FLOW_PATH, add_teaching_entries
+            if path == TEACHING_FLOW_PATH and any(ops.get('teaching') for ops in song_flows.values()):
+                original = add_teaching_entries(original)
+                report['song_flows'] = report.get('song_flows', 0) + 1
             if path in song_flows:
                 # Songs: text-only gets and cutscenes without their melody teaching.
                 from oot_rando.patching.song_adapter import check_song_ops, patch_flow as patch_song_flow
@@ -364,6 +410,22 @@ def verify(nup_path, seed_dir):
                 if 'clock' in (manifest.get('skips', {}).get('story_fixes') or {}):
                     from oot_rando.patching.story_fixes import story_start_values
                     values = dict(values, **story_start_values())
+                presentation_flags = manifest.get('skips', {}).get('presentation_flags') or {}
+                if presentation_flags:
+                    from oot_rando.patching.area_presentations import start_values as presentation_start_values
+                    if presentation_flags != presentation_start_values():
+                        raise ValueError('Area presentation flags differ from the spoiler.')
+                    values = dict(values, **presentation_flags)
+                from oot_rando.patching import child_castle_skip
+                if child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
+                    values = dict(values, **child_castle_skip.START_VALUES)
+                    # The castle quests replayed at the start (native requests, copied).
+                    steps = child_castle_skip.start_step_params(lambda p: decompress(nup.read(members[p]), d))
+                    if [name for name, _ in steps] != (skips.get('story_fixes') or {}).get('child_castle_start'):
+                        raise ValueError('Child castle start requests differ from the settings.')
+                    for name, params in steps:
+                        before[name] = params
+                        report['start_values'] = report.get('start_values', 0) + 1
                 for (key, value), name in zip(sorted(values.items()), start_value_events(values)):
                     before[name] = {'GameDataName': key, 'Value': value, 'Index': -1}
                     report['start_values'] = report.get('start_values', 0) + 1
@@ -462,6 +524,30 @@ def verify(nup_path, seed_dir):
                     raise ValueError("Unexpected Zora's River wall presence: " + path)
                 a2['Presence'] = dict(ZORA_RIVER_WALL_PRESENCE_ENTRY)
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
+            child_wall_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('zora_river_child_wall')
+            if (child_wall_fix and path == child_wall_fix['map'] and index in child_wall_fix['actors']
+                    and 'Presence' not in a2):
+                # Child map's river mouth walls only for adult Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (ZORA_RIVER_WALL, ZORA_RIVER_CHILD_WALLS,
+                                                            ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != ZORA_RIVER_WALL or a2.get('Hash') not in ZORA_RIVER_CHILD_WALLS
+                        or child_wall_fix['presence'] != ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY['FlagName']
+                        or child_wall_fix.get('negation') is not True):
+                    raise ValueError("Unexpected Zora's River wall presence: " + path)
+                a2['Presence'] = dict(ZORA_RIVER_CHILD_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
+            tree_fix = (manifest.get('skips', {}).get('story_fixes') or {}).get('lake_tree_wall')
+            if tree_fix and path == tree_fix['map'] and index == tree_fix['actor']:
+                # Lake Hylia island tree wall only for child Link (patching/story_fixes.py).
+                from oot_rando.patching.story_fixes import (LAKE_TREE_WALL, LAKE_TREE_WALL_HASH,
+                                                            LAKE_TREE_WALL_VANILLA,
+                                                            LAKE_TREE_WALL_PRESENCE_ENTRY)
+                if (a2.get('Gyaml') != LAKE_TREE_WALL or a2.get('Hash') != LAKE_TREE_WALL_HASH
+                        or a2.get('Presence') != LAKE_TREE_WALL_VANILLA
+                        or tree_fix['presence'] != LAKE_TREE_WALL_PRESENCE_ENTRY['FlagName']):
+                    raise ValueError('Unexpected Lake Hylia tree wall presence: ' + path)
+                a2['Presence'] = dict(LAKE_TREE_WALL_PRESENCE_ENTRY)
+                report['story_fixes'] = report.get('story_fixes', 0) + 1
             if 'Presence' in b2 and 'Presence' not in a2:
                 flag = b2['Presence'].get('FlagName', '')
                 from oot_rando.patching.soul_adapter import soul_presence
@@ -489,6 +575,8 @@ def verify(nup_path, seed_dir):
         report['maps'] += 1
     # Actors.
     derived = set()
+    from oot_rando.patching.master_sword_item import MASTER_SWORD_ACTOR
+    master_actors = {MASTER_SWORD_ACTOR} if manifest['settings']['full'].get('shuffle_master_sword') else set()
     once_actors = {r['actor']: r for r in tracking.get('repeatables', [])}
     for placement in full:
         actor = placement['actor']
@@ -504,13 +592,13 @@ def verify(nup_path, seed_dir):
             canonical = canonical_of(actor)
             if canonical.startswith(('Item_Soul_', 'Item_AP_')) or is_key_actor(canonical) or is_token(canonical):
                 soul_actors.add(canonical)  # derived soul/key/token: the generated item must exist too
-        elif 'Pack/Actor/' + actor + '.pack.zs' not in members:
+        elif actor not in master_actors and 'Pack/Actor/' + actor + '.pack.zs' not in members:
             raise ValueError('Actor missing: ' + actor)
     for native in natives:
         soul_actors.add(native['token'])
         if is_derived(native['after']):
             derived.add(native['after'])
-    generated = soul_actors | derived
+    generated = soul_actors | derived | master_actors
     if generated:
         rest = decompress((seed_dir / 'romfs' / RESTBL).read_bytes(), d)
         count = struct.unpack_from('<I', rest, 14)[0]
