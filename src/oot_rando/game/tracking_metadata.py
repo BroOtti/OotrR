@@ -80,7 +80,7 @@ DUNGEON_LABELS = {
 def reward_label(item, actor=''):
     if item.startswith('Soul ('):
         return soul_label(item)
-    canonical = actor.removeprefix('Obj_Rando_').removeprefix('Shop_Rando_')
+    canonical = actor.removeprefix('Obj_Rando_').removeprefix('Obj_RandoWater_').removeprefix('Shop_Rando_')
     tiers = {'Item_Hookshot': 'Hookshot', 'Item_Longshot': 'Longshot',
              'Item_Gauntlet_Goron': 'Goron\'s Bracelet', 'Item_Gauntlet_Silver': 'Silver Gauntlets',
              'Item_Gauntlet_Gold': 'Golden Gauntlets', 'Item_Range_Bow': 'Fairy Bow',

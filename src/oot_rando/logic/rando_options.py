@@ -168,12 +168,15 @@ OPTIONS = [
     Option('shuffle_song_items', 'Items', 'Songs',
            (('song', 'Vanilla', OK), ('shuffled', 'Shuffled among song locations', OK),
             ('dungeon', 'Song locations and dungeon rewards', OK),
-            ('any', 'Anywhere a cutscene can give them', OK)), 'song',
+            ('any', 'Anywhere a cutscene can give them', OK),
+            ('everywhere', 'Anywhere, chests and pickups too', OK)), 'song',
            'A song is given with its text only ("You learned …"), nothing in Link\'s hands; '
            'the song cutscenes no longer teach their melody when they give another item. '
-           '"Anywhere": song locations, dungeon rewards, great fairies and story rewards (the '
-           'matching options must be on). Not validated in game.',
-           experimental=('shuffled', 'dungeon', 'any')),
+           '"Anywhere a cutscene": song locations, dungeon rewards, great fairies and story rewards (the '
+           'matching options must be on). "Chests and pickups too": also chests, freestanding spots, '
+           'pots, crates and gold skulltulas when those are shuffled; there the song shows Sheik\'s '
+           'harp in its colour of the ocarina menu. Not validated in game.',
+           experimental=('shuffled', 'dungeon', 'any', 'everywhere')),
     Option('shopsanity', 'Items', 'Shops (items shuffled per shop)',
            (('off', 'Vanilla', OK), ('1', '1 item per shop', OK), ('2', '2 items', OK),
             ('3', '3 items', OK), ('4', '4 items', OK), ('5', '5 items', OK), ('6', '6 items', OK),
@@ -307,7 +310,14 @@ OPTIONS = [
            'room requires the souls present there. A new save is required.',
            experimental=('bosses', 'regional', 'all')),
     # -------------------------------------------------------- Quality of life
-    Option('skip_child_zelda', 'Quality of life', 'Skip meeting child Zelda', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
+    Option('skip_child_zelda', 'Quality of life', 'Skip child Hyrule Castle', ((False, OK), (True, OK)), False,
+           'A new game starts as if Malon, Talon, Zelda and Impa had already been met: Zelda\'s Letter '
+           'and Zelda\'s Lullaby are shuffled elsewhere (the lullaby anywhere a song can be given). '
+           'The castle grounds become optional: every '
+           'shuffled check there (pots, crates, skulltulas, Zelda, Impa) holds a green rupee, except the '
+           'Great Fairy. What comes after the castle keeps its own conditions (Kokiri Forest exit after '
+           'the Deku Tree, Kakariko gate with the letter...). New save required. To be validated in game.',
+           kind='bool', experimental=(True,)),
     Option('no_escape_sequence', 'Quality of life', 'Skip the castle escape', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('no_guard_stealth', 'Quality of life', 'Skip the castle stealth section', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
     Option('no_epona_race', 'Quality of life', 'Epona without the race', ((False, OK), (True, NO_EVENT)), False, kind='bool'),

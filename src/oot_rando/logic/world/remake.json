@@ -17,6 +17,14 @@
    "rule": "is_child and at_night and 'Kakariko Village Gate Open'",
    "why": "Richard only runs away once the Kakariko gate guard has read Zelda's Letter (Logic/Market_Child_Prefab_f3a2: RunningRichard needs Npc_Hylia_Soldier_003_GateOpen); before that he stays home with his owner (14/11, Discord report)."
   },
+  "Song from Malon": {
+   "rule": "is_child and (Zeldas_Letter or skip_child_zelda) and Ocarina and at_day",
+   "why": "Malon and Talon are back at Lon Lon Ranch once Talon was woken at the castle (Entry_LonLonRanch: Goto_HyruleCastle_IsAfter_Step04_Exp), the letter is the base world's stand-in for it. With the child castle skipped (patching/child_castle_skip.py) Talon is awake from the start and the letter is shuffled."
+  },
+  "LLR Talons Chickens": {
+   "rule": "is_child and at_day and (Zeldas_Letter or skip_child_zelda)",
+   "why": "Same as Song from Malon: Talon is at the ranch once woken at the castle, from the start with the child castle skipped."
+  },
   "Song from Saria": {
    "rule": "is_child and 'Kakariko Village Gate Open' and at('GC Darunias Chamber', is_child)",
    "why": "Saria teaches her song during the Fire Stone quest (Challenge Get_StoneOfFire, step SariaMelodyGet), only after Darunia asked for music in his chamber (11/11: Kokiri Sword behind the Skull Kid). The quest reaches Death Mountain when the Kakariko guard reads Zelda's Letter (or with the gate open from the start), not on the letter held."
@@ -86,6 +94,18 @@
   "GC Woods Warp -> Goron City": {
    "rule": "'GC Woods Warp Open'",
    "why": "A closed Kokiri Forest does not block the Lost Woods shortcut to Goron City once its rock is broken (bombs, Din's Fire): AP's can_leave_forest is dropped. Kakariko stays behind its gate (Kak Behind Gate -> Kakariko Village still needs the gate open for child Link)."
+  },
+  "Death Mountain Summit -> DMC Upper Local": {
+   "rule": "is_adult",
+   "why": "Child Death Mountain Crater actors are excluded from the shuffle and logic; only the adult crater is considered."
+  },
+  "Bolero of Fire Warp -> DMC Central Local": {
+   "rule": "is_adult",
+   "why": "The warp must not reintroduce excluded child crater checks or child bean planting into the logic."
+  },
+  "Root -> HC Garden Locations": {
+   "rule": "shuffle_child_trade == 'skip_child_zelda' or skip_child_zelda",
+   "why": "Child Hyrule Castle skipped (patching/child_castle_skip.py): Zelda and Impa are met from the start ('Met Zelda'), their checks hold green rupees."
   },
   "ZR Front -> Zora River": {
    "rule": "can_blast_or_smash",

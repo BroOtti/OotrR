@@ -547,6 +547,22 @@ def collect(nup, dictionaries, members, maps):
     return entries
 
 
+UNDERWATER_INFO = 'RSDB/ActorInfo.Product.111.rstbl.byml.zs'
+
+
+def mark_underwater(nup, dictionaries, members, maps, extra):
+    """Mark the world-form spots under water (:mod:`oot_rando.game.underwater`)."""
+    from oot_rando.formats import byml_codec
+    from oot_rando.formats.inspect_resources import decompress
+    from oot_rando.game.underwater import mark_entries
+    if UNDERWATER_INFO not in members:
+        return 0
+    rows = byml_codec.load(decompress(nup.read(members[UNDERWATER_INFO]), dictionaries))['root']
+    boxes = {row['__RowId']: (row['ModelAabbMin'], row['ModelAabbMax']) for row in rows
+             if 'WaterPlane' in row.get('__RowId', '') and 'ModelAabbMin' in row and 'ModelAabbMax' in row}
+    return mark_entries(maps, extra, boxes.get)
+
+
 def scan_world(nup, dictionaries, members, progress=None):
     """Maps, chest groups, enemies and the other reward sources."""
     from oot_rando.game.remake_world import scan_maps
@@ -554,4 +570,5 @@ def scan_world(nup, dictionaries, members, progress=None):
     maps, groups, enemies = scan_maps(nup, dictionaries, members, progress)
     extra = collect(nup, dictionaries, members, maps)
     label_entries(maps, groups, extra)   # readable check names (game/check_names.py)
+    mark_underwater(nup, dictionaries, members, maps, extra)
     return maps, groups, enemies, extra

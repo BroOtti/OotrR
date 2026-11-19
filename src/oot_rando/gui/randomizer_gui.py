@@ -69,7 +69,7 @@ OPTION_COPY = {
     'shuffle_npc_gifts': ('Character gifts and minigames', 'Shuffles the supported rewards of characters and minigames.'),
     'shuffle_boss_rewards': ('Boss and dungeon rewards', 'Shuffles spiritual stones, medallions and heart containers. The game scenes are kept.'),
     'shuffle_great_fairies': ('Great fairy rewards', 'Shuffles spells, magic and defense upgrades.'),
-    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs have their own shuffle setting.'),
+    'shuffle_quest_rewards': ('Main quest rewards', 'Includes the ocarinas, Zelda\'s Letter (with a shuffled child trade quest), the Light Arrows, the Biggoron Sword and Ruto\'s Letter. Songs follow the Songs setting.'),
     'shuffle_pots': ('Pots', 'The first reward is shuffled. Once picked up, the pot goes back to its vanilla loot.'),
     'shuffle_crates': ('Crates', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
     'shuffle_beehives': ('Beehives', 'The first reward is shuffled. Later pickups use the vanilla loot.'),
@@ -162,6 +162,10 @@ OPTION_TIPS = {
                             'every kind of enemy has its own soul. A new game is required.',
     'big_poe_count': 'The Poe collector gives his reward after this many Big Poes (vanilla: 10). '
                      'To be confirmed in game.',
+    'skip_child_zelda': 'Start as if Malon, Talon, Zelda and Impa had been met: Zelda\'s Letter and Lullaby '
+                        'are shuffled elsewhere. The child castle grounds become optional: their shuffled checks hold '
+                        'green rupees, except the Great Fairy. Later events keep their conditions (Kokiri '
+                        'Forest exit after the Deku Tree...). New save required. To be confirmed in game.',
 }
 # Settings page layout: (card title, card note, [option names]). "game:" names are the
 # general settings of the application (Settings fields), the others complete-mode options.
@@ -169,7 +173,7 @@ OPTION_TIPS = {
 SETTING_GROUPS = (
     ('Open world', 'Zones and quests open from the start.',
      ['game:open_forest', 'open_kakariko', 'open_door_of_time', 'zora_fountain', 'gerudo_fortress',
-      'open_gerudo_valley_bridge']),
+      'open_gerudo_valley_bridge', 'skip_child_zelda']),
     ('Logic and accessibility', '',
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
     ('Item pool', 'What is shuffled and what you start with.',

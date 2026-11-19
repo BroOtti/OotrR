@@ -410,15 +410,23 @@ def map_age(path):
 
 
 def inaccessible_child_actor(path, actor):
-    """Unreachable fortress bank of Gerudo Valley, including its buried grotto.
+    """Child actors kept out of the shuffle and the logic.
 
-    The child map contains these actors despite the bridge being impassable.
-    The far plateau is west of x=-15 at y~100; its grotto is at y~84.
-    Keep the lower river ledges (y~48) and crate/heart ledge (x~-9, y~90).
+    * Every actor of the child Death Mountain Crater maps: they stay vanilla,
+      and a source shared by both ages keeps only its adult copy.
+    * The unreachable fortress bank of Gerudo Valley, including its buried
+      grotto: the child map contains these actors despite the bridge being
+      impassable. The far plateau is west of x=-15 at y~100; its grotto is at
+      y~84. Keep the lower river ledges (y~48) and crate/heart ledge (x~-9, y~90).
+
     Filter candidates only: decoded maps and original actor indices stay intact.
     """
+    if map_age(path) != 'child':
+        return False
+    if path.startswith('Banc/DeathMountainCrater/'):
+        return True
     position = actor.get('Translate')
-    return (path.startswith('Banc/GerudoValley/') and map_age(path) == 'child'
+    return (path.startswith('Banc/GerudoValley/')
             and isinstance(position, list) and len(position) == 3
             and position[0] < -15 and position[1] >= 80)
 

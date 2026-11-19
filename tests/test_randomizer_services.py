@@ -36,7 +36,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_previous_generator_seed_still_opens_without_changing_identity(self):
         with tempfile.TemporaryDirectory() as directory:
-            for version in ('0.9.0', '0.10.0', '0.11.0', '0.11.1', '0.11.2', '0.11.3'):
+            for version in ('0.9.0', '0.10.0', '0.11.0', '0.11.1', '0.11.2', '0.11.3', '0.11.4', '0.10.1'):
                 with self.subTest(version=version):
                     root = self.make_artifact(Path(directory) / version, 'same-settings')
                     path = root / 'manifest.json'

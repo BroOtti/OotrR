@@ -336,8 +336,12 @@ def _fairy_reward_flag(name, reward, actor):
         from evfl.util import make_index
         flow = _Chart(raw)
         gift = flow.event(reward, 'SubFlowEvent')
-        if (gift.data.res_flowchart_name != 'Dm_SY_GetInEvent'
-                or not gift.data.entry_point_name.startswith('GetInEvent') or 'ActorName' not in _params(gift)):
+        # A song placed here is already a silent add (patching/song_adapter.py: text_get).
+        posed = (gift.data.res_flowchart_name == 'Dm_SY_GetInEvent'
+                 and gift.data.entry_point_name.startswith('GetInEvent'))
+        silent = (gift.data.res_flowchart_name, gift.data.entry_point_name) == (
+            'GetPouchContent', 'GetPouchContentByActorName')
+        if not (posed or silent) or 'ActorName' not in _params(gift):
             raise ValueError('Unexpected Great Fairy reward: ' + name)
         links = _predecessors(flow.chart, gift)
         if not links or any(kind == 'entry' for _, kind, _ in links):
@@ -1172,6 +1176,52 @@ def keep_first_arrivals_forward(read_flow, challenges_raw):
 
 from oot_rando.patching.owl_advice import FLOW_FIXES as OWL_FLOW_FIXES
 
+# --- Link the Goron's tunic (adult) ------------------------------------------------
+# Adult Link the Goron (``Npc_Goron_DaruniaJr_Adult``) hands over the Goron Tunic in
+# ``SageOfFire`` ``Step02`` talk, only while the quest stands at ``TalkDaruniaJr``. The
+# Death Mountain Crater sets the quest to ``MeetSheik`` as soon as Link enters it (logic
+# ``DeathMountainCrater_Adult_Prefab_a0e2``): after Bolero of Fire, or any crater visit,
+# that talk never comes back, and before Dodongo's Cavern the quest stayed out of his
+# reach (user report 19/11). His own talk (``Talk``, the one he keeps outside those
+# steps) now gives the tunic first while Link has none
+# (``Dm_SY_GetInEvent/GetInEvent_NotTurn_NotNpc``, the vanilla get with Link's pose).
+LINK_GORON_FLOW = 'Event/EventFlow/Npc_Goron_DaruniaJr_Adult.bfevfl.zs'
+LINK_GORON_TALK = 'Talk'
+GORON_TUNIC_GIFT = 'Obj_Armor_Goron'
+GORON_TUNIC = 'Armor_Adult_Goron'
+
+
+def link_goron_gives_tunic(raw):
+    """``Npc_Goron_DaruniaJr_Adult``: his talk gives the Goron Tunic while Link has none.
+
+    Returns (bytes, report)."""
+    from evfl.util import make_index
+    from oot_rando.patching.progressive import FlowEditor, link
+    editor = FlowEditor(raw, 'Npc_Goron_DaruniaJr_Adult')
+    chart = editor.chart
+    entry = next((e for e in chart.entry_points if e.name == LINK_GORON_TALK), None)
+    if entry is None or getattr(entry.main_event, 'v', None) is None or entry.main_event.v.name != 'Event99':
+        raise ValueError("Unexpected Link the Goron's talk flow.")
+    if any(e.name.startswith('RandoGoronTunic') for e in chart.events):
+        raise ValueError('Story fix already applied: RandoGoronTunic')
+    usual = entry.main_event.v
+    give = editor.subflow('RandoGoronTunicGive', 'Dm_SY_GetInEvent', 'GetInEvent_NotTurn_NotNpc',
+                          {'ActorName': GORON_TUNIC_GIFT, 'IsNpcEventStarter': False})
+    link(give, usual)
+    has = editor.switch('RandoGoronTunicHas', 'PouchSystemActor', 'EventQueryIsExistInPouch',
+                        {'Actor': GORON_TUNIC, 'Num': 1}, usual, give)
+    entry.main_event = make_index(has)
+    entry._sub_flow_event_indices = list(entry._sub_flow_event_indices) + [chart.events.index(give)]
+    result, checked = editor.write("Link the Goron's tunic")
+    events = {e.name: e for e in checked.flowchart.events}
+    start = {e.name: e for e in checked.flowchart.entry_points}[LINK_GORON_TALK].main_event.v
+    cases = {k: c.v.name for k, c in events['RandoGoronTunicHas'].data.cases.items()}
+    if (start.name != 'RandoGoronTunicHas' or cases != {0: 'Event99', 1: 'RandoGoronTunicGive'}
+            or events['RandoGoronTunicGive'].data.nxt.v.name != 'Event99'):
+        raise ValueError("Link the Goron's tunic wrongly chained.")
+    return result, {'flow': LINK_GORON_FLOW, 'entry': LINK_GORON_TALK, 'gift': GORON_TUNIC_GIFT}
+
+
 FLOW_FIXES = (
     *OWL_FLOW_FIXES,
     ('Event/EventFlow/AllSage.bfevfl.zs', 'prelude_quest_forward', prelude_keeps_later_sage_progress),
@@ -1189,4 +1239,5 @@ FLOW_FIXES = (
     (KOKIRI_EXIT_FLOW, 'kokiri_exit_guard', kokiri_exit_guard_steps_aside),
     (DAMPE_FLOW, 'dampe_first_race', dampe_first_race_until_prize),
     (SARIA_SONG_FLOW, 'saria_song_forward', door_of_time_forward),
+    (LINK_GORON_FLOW, 'link_goron_tunic', link_goron_gives_tunic),
 )

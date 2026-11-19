@@ -188,6 +188,20 @@ class GameFlows(unittest.TestCase):
                 self.assertIn(s.GREAT_FAIRY_FLAG_PREFIX + name, queried)
                 self.assertFalse(queried & {'IsGet.' + a for _, _, a in s.GREAT_FAIRIES})
 
+    def test_great_fairy_reward_accepts_a_song_silent_add(self):
+        # A song on a Great Fairy: song_adapter's text_get turned her pose into a silent add.
+        name, reward, actor = s.GREAT_FAIRIES[0]
+        flow = s._Chart(self.read(s.fairy_flow(name)))
+        gift = flow.event(reward, 'SubFlowEvent')
+        gift.data.res_flowchart_name, gift.data.entry_point_name = 'GetPouchContent', 'GetPouchContentByActorName'
+        gift.data.params.data = {'ActorName': 'Item_Melody_StormSong'}
+        flow.expected[reward] = {'ActorName': 'Item_Melody_StormSong'}
+        source, _ = flow.write()
+        raw, _ = s._fairy_reward_flag(name, reward, actor)(source)
+        events = self.chart(raw)
+        self.assertEqual(events['RandoGreatFairyGiven'].data.nxt.v.name, reward)
+        self.assertEqual(events[reward].data.entry_point_name, 'GetPouchContentByActorName')
+
     def test_great_fairy_flags_unique(self):
         self.assertEqual(len(s.great_fairy_saved_flags()), 6)
 
@@ -498,6 +512,27 @@ class GameFlows(unittest.TestCase):
         self.check_kept(source, raw)
         with self.assertRaises(ValueError):
             s.kokiri_exit_guard_steps_aside(raw)
+
+    def test_link_goron_gives_tunic_outside_his_quest_step(self):
+        # 19/11: the tunic only came at SageOfFire TalkDaruniaJr: never after the crater
+        # (Bolero) moved the quest on, nor before Dodongo's Cavern.
+        from oot_rando.patching.event_patch import _flow
+        source = self.read(s.LINK_GORON_FLOW)
+        raw, report = s.link_goron_gives_tunic(source)
+        flow = _flow(raw).flowchart
+        entry = {e.name: e for e in flow.entry_points}[s.LINK_GORON_TALK]
+        has = entry.main_event.v
+        self.assertEqual(dict(has.data.params.data), {'Actor': s.GORON_TUNIC, 'Num': 1})
+        give = has.data.cases[1].v
+        self.assertEqual((give.data.res_flowchart_name, give.data.entry_point_name),
+                         ('Dm_SY_GetInEvent', 'GetInEvent_NotTurn_NotNpc'))
+        self.assertEqual(give.data.params.data['ActorName'], s.GORON_TUNIC_GIFT)
+        self.assertEqual((has.data.cases[0].v.name, give.data.nxt.v.name), ('Event99', 'Event99'))
+        self.assertIn(flow.events.index(give), entry._sub_flow_event_indices)
+        self.assertEqual(report['gift'], 'Obj_Armor_Goron')
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.link_goron_gives_tunic(raw)
 
     def steps(self):
         from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps

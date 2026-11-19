@@ -37,7 +37,7 @@ AP_VANILLA_SETTINGS = {
     'complete_mask_quest': False, 'disable_trade_revert': False, 'fix_broken_drops': False,
     'hints': 'none', 'keysanity': False, 'shuffle_scrubs': 'off', 'shuffle_pots': 'off',
     'shuffle_child_trade': 'vanilla', 'blue_fire_arrows': False, 'had_night_start': False,
-    'shuffle_master_sword': False, 'shuffle_gerudo_card': False,
+    'shuffle_master_sword': False, 'shuffle_gerudo_card': False, 'skip_child_zelda': False,
 }
 
 

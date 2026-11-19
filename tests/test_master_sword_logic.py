@@ -52,7 +52,10 @@ class MasterSwordLogicTests(unittest.TestCase):
         placements = {'Master Sword Pedestal': 'Time Travel',
                       'ToT Master Sword': 'Rupees (5)',
                       'Sheik at Temple': 'Master Sword'}
-        state, collected, spheres = logic.sweep(placements, logic.new_state({'Forest Medallion': 1}), record_spheres=True)
+        # The Door of Time opens after Zelda's escape (three stones, Zelda met) and the Song of Time.
+        start = {'Forest Medallion': 1, 'Kokiri Emerald': 1, 'Goron Ruby': 1, 'Zora Sapphire': 1,
+                 'Met Zelda': 1, 'Ocarina': 1, 'Song of Time': 1}
+        state, collected, spheres = logic.sweep(placements, logic.new_state(start), record_spheres=True)
         self.assertEqual(collected, set(placements))
         self.assertTrue(state.has('Time Travel'))
         self.assertTrue(state.has('Master Sword'))
