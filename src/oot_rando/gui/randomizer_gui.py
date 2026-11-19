@@ -12,7 +12,7 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION, generate
 from oot_rando.randomizer.randomizer_services import (read_artifact, generate_in_mods, qol_seed_warning,
-                                                      validate_mod_directory)
+                                                      regeneration_settings, validate_mod_directory)
 from oot_rando.randomizer.qol_install import install_qol
 from oot_rando.tracker.auto_tracker import TrackerSession, newest_save
 from oot_rando.tracker import game_overlay
@@ -267,6 +267,7 @@ class Application:
         self.configure_theme()
         self.events, self.busy = queue.Queue(), False
         self.artifact, self.tracker, self.overlay, self.hud = None, None, None, None
+        self.regen_settings = None   # settings of an installed seed made by an older generator
         self.hud_status = tk.StringVar(value='')
         self.zone_open, self.tracker_scroll, self.tracker_trees = {}, {}, {}
         self.current_checks = []
@@ -561,6 +562,7 @@ class Application:
         self.home_primary.pack(side='right')
         self.home_secondary = ttk.Button(row, style='Hero.TButton')
         self.home_secondary.pack(side='right', padx=(0, 10))
+        self.home_regen = ttk.Button(row, text='Regenerate', style='Hero.TButton', command=self.regenerate)
         links = ttk.Frame(parent, style='Page.TFrame')
         links.pack(fill='x', pady=(0, 12))
         for text, command in [('Open a seed…', self.open_artifact), ('Open the folder', self.open_folder),
@@ -620,8 +622,14 @@ class Application:
             self.home_primary.configure(text='Continue', command=lambda: self.show_page('tracker'))
             self.home_secondary.configure(text='New seed', command=lambda: self.show_page('newseed'))
         else:
+            self.regen_settings = None
             self.home_primary.configure(text='Create a seed', command=lambda: self.show_page('newseed'))
             self.home_secondary.configure(text='Open a seed…', command=self.open_artifact)
+        if self.regen_settings is not None:
+            if not self.home_regen.winfo_manager():
+                self.home_regen.pack(side='right', padx=(0, 10), after=self.home_secondary)
+        else:
+            self.home_regen.pack_forget()
         setup = lambda: self.show_page('setup')
         if self.nup.get() and Path(self.nup.get()).is_file():
             self.set_tile('game', 'ok', 'Found')
@@ -1423,6 +1431,31 @@ class Application:
         except Exception as error:
             self.error(error)
 
+    def regenerate(self):
+        """Generate the installed seed again with this version: same name, same settings."""
+        try:
+            settings = self.regen_settings
+            if settings is None or self.artifact is None:
+                raise ValueError('This seed is already up to date.')
+            nup = Path(self.nup.get())
+            if not nup.is_file():
+                raise ValueError('Select the local NUP file.')
+            mods = validate_mod_directory(self.artifact.parent)
+            if not messagebox.askyesno(
+                    'Regenerate the seed',
+                    f'Seed "{settings.seed}" was made by an older version of the randomizer. Generate it '
+                    f'again with version {GENERATOR_VERSION}, with the same name and settings?\n\n'
+                    'The current copy is moved to the archive (never deleted). The new version may '
+                    'place items differently: a new game may be needed.'):
+                return
+
+            def job(progress):
+                installed = generate_in_mods(nup, mods, settings, progress, archive=ARCHIVE, generate=generate)
+                return installed, installed
+            self.run_job(job, self.generated_and_installed)
+        except Exception as error:
+            self.error(error)
+
     def generated_and_installed(self, result):
         directory, installed = result
         self.use_artifact(directory)
@@ -1449,6 +1482,7 @@ class Application:
             self.result.set(self.result.get() + f'\n{coverage["changed_groups"]} ordinary chests changed, '
                             f'{coverage["changed_instances"]} physical variants; vanilla progression.')
         self.apply_settings(Settings.from_dict(manifest['settings']))
+        self.regen_settings = regeneration_settings(manifest)
         if manifest.get('tracking', {}).get('new_save_required'):
             self.result.set(self.result.get() + '\nA new game is needed for automatic tracking.')
         self.seed_name = (manifest['settings']['seed'] or manifest['seed_id'][:12])[:28]
