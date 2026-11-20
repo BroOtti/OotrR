@@ -157,6 +157,15 @@ ACTOR_ITEMS = {
     'Item_ZeldaLetter': 'Zeldas Letter', 'Item_Arrow_Light': 'Light Arrows',
     'Item_Bottle_Letter': 'Rutos Letter',
     'Item_Sword_Biggoron': 'Biggoron Sword',
+    'Weapon_Sword_Master': 'Master Sword', 'Item_Rando_MasterSword': 'Master Sword',
+    'Item_Token_Gerudo': 'Gerudo Membership Card',
+    # Songs (pouch actors given by the song cutscenes, see patching/song_adapter.py).
+    'Item_Melody_ZeldaLullaby': 'Zeldas Lullaby', 'Item_Melody_EponaSong': 'Eponas Song',
+    'Item_Melody_SariaSong': 'Sarias Song', 'Item_Melody_SunSong': 'Suns Song',
+    'Item_Melody_TimeSong': 'Song of Time', 'Item_Melody_StormSong': 'Song of Storms',
+    'Item_Melody_ForestMinuet': 'Minuet of Forest', 'Item_Melody_FireBolero': 'Bolero of Fire',
+    'Item_Melody_WaterSerenade': 'Serenade of Water', 'Item_Melody_SpiritRequiem': 'Requiem of Spirit',
+    'Item_Melody_ShadowNocturne': 'Nocturne of Shadow', 'Item_Melody_LightPrelude': 'Prelude of Light',
     # Remake-only items with no AP equivalent: never part of the logic.
     'Tbox_MagicJar_Large': 'Remake: Magic Jar', 'Item_ScrubBusinessSeed': 'Remake: Scrub Seed',
 }
@@ -190,7 +199,7 @@ def actor_item(actor, folder):
         family = token_family(actor)
         if family:
             return family
-    if actor.startswith(('Item_KeyRing_', 'Item_BossKey_')):
+    if actor.startswith(('Item_KeyRing_', 'Item_BossKey_', 'Item_Map_', 'Item_Compass_')):
         from oot_rando.patching.key_adapter import key_actor_item
         item = key_actor_item(actor)
         if item:
@@ -214,6 +223,12 @@ def item_actor(item, folder):
     if item.startswith('Small Key Ring ('):
         from oot_rando.patching.key_adapter import item_folder, ring_actor
         return ring_actor(item_folder(item))
+    if item.startswith(('Map (', 'Compass (')):
+        # Their own actor, credited wherever it is found (key_adapter).
+        from oot_rando.patching.key_adapter import dungeon_item_actor
+        actor = dungeon_item_actor(item)
+        if actor:
+            return actor
     if item.startswith('Remake: '):
         name = item[len('Remake: '):]
         return {'Magic Jar': 'Tbox_MagicJar_Large', 'Scrub Seed': 'Item_ScrubBusinessSeed'}.get(name, name)
@@ -284,6 +299,64 @@ def enemy_counter_locks(path, root):
     return locks
 
 
+# Actors an enemy may be linked to without its defeat doing anything: movement
+# paths, camera/start anchors, map icons, entrance cutscenes. Shutters are the
+# room locks (``enemy_counter_locks``), handled by soul door edits.
+INERT_LINKS = ('DestinationAnchor', 'StartPos', 'MapIconOffsetAnchor', 'AnchorAction',
+               'FieldAndDungeonEntranceEventRequestActor')
+# Dynamic parameters of an enemy that tie it to a scripted sequence: appears for
+# an event (minibosses, bosses), takes part in an ordered puzzle (Deku 2-3-1).
+MECHANIC_PARAMS = ('IsIntendedForEventAppear', 'DefeatedOrder', 'ShootOrder', 'TalkEventName')
+
+
+def enemy_mechanics(root):
+    """Enemy hash → what its defeat (or presence) drives besides room locks.
+
+    An enemy is *mechanical* when it is linked (directly, or through an
+    ``EventRequestActor``/``Obj_EnemyCounter``) to an actor that is neither
+    another enemy, a shutter nor an inert anchor (a chest, a switch, a platform,
+    a fuse…), or carries one of ``MECHANIC_PARAMS``. Without its soul such an
+    enemy is absent and what it drives may never happen; any other enemy only
+    makes its room harder, so its absence never blocks the player.
+    """
+    actors = root.get('Actors', [])
+    by_hash = {a['Hash']: a for a in actors if type(a.get('Hash')) is int}
+    incoming = defaultdict(list)
+    for actor in actors:
+        for link in actor.get('Links', []) or []:
+            if isinstance(link, dict) and link.get('Dst') in by_hash:
+                incoming[link['Dst']].append(actor)
+
+    def neighbours(actor):
+        return [by_hash[l['Dst']] for l in actor.get('Links', []) or []
+                if isinstance(l, dict) and l.get('Dst') in by_hash] + incoming[actor['Hash']]
+
+    def meaningful(actor):
+        name = actor.get('Gyaml', '')
+        return not (name.startswith('Enemy_') or 'Shutter' in name or name.startswith(INERT_LINKS))
+
+    result = {}
+    for enemy in actors:
+        if not enemy.get('Gyaml', '').startswith('Enemy_') or type(enemy.get('Hash')) is not int:
+            continue
+        dynamic = enemy.get('Dynamic') if isinstance(enemy.get('Dynamic'), dict) else {}
+        reasons = {'param:' + key for key in MECHANIC_PARAMS if dynamic.get(key) not in (None, False, '')}
+        for other in neighbours(enemy):
+            name = other.get('Gyaml', '')
+            if name == 'EventRequestActor' or name.startswith('Obj_EnemyCounter'):
+                hops = [other]
+                if name.startswith('Obj_EnemyCounter'):
+                    hops += [a for a in incoming[other['Hash']] if a.get('Gyaml') == 'EventRequestActor']
+                for hop in hops:
+                    reasons |= {a['Gyaml'] for a in neighbours(hop) if meaningful(a)
+                                and a.get('Gyaml') != 'EventRequestActor'
+                                and not a.get('Gyaml', '').startswith('Obj_EnemyCounter')}
+            elif meaningful(other):
+                reasons.add(name)
+        result[enemy['Hash']] = sorted(reasons)
+    return result
+
+
 def scan_maps(nup, dictionaries, members, progress=None):
     """Return decoded maps, chest groups and enemy instances (read-only)."""
     from oot_rando.formats.inspect_resources import Byml, decompress  # zstd: not needed by the logic
@@ -301,7 +374,10 @@ def scan_maps(nup, dictionaries, members, progress=None):
         maps[path] = {'raw': raw, 'root': root, 'compressed': compressed}
         folder = path.split('/')[1]
         room_locks = enemy_counter_locks(path, root)
+        mechanics = enemy_mechanics(root)
         for actor_index, actor in enumerate(root.get('Actors', [])):
+            if inaccessible_child_actor(path, actor):
+                continue
             name = actor.get('Gyaml', '')
             if BLAST_WALL.match(name) and isinstance(actor.get('Translate'), list):
                 walls[folder].append((map_age(path), actor['Translate']))
@@ -319,7 +395,8 @@ def scan_maps(nup, dictionaries, members, progress=None):
             elif name.startswith('Enemy_'):
                 enemies.append({'resource': path, 'index': actor_index, 'actor': name, 'folder': folder,
                                 'hash': str(actor['Hash']), 'presence': actor.get('Presence'),
-                                'locks': room_locks.get(actor['Hash'], [])})
+                                'locks': room_locks.get(actor['Hash'], []),
+                                'mechanics': mechanics.get(actor['Hash'], [])})
     for variants in groups.values():
         for variant in variants:
             variant['behind_wall'] = _behind_wall(variant, walls[variant['folder']])
@@ -330,6 +407,28 @@ def scan_maps(nup, dictionaries, members, progress=None):
 def map_age(path):
     """Age of a remake map file (None: a map both ages share)."""
     return 'child' if '_Child_' in path else 'adult' if '_Adult_' in path else None
+
+
+def inaccessible_child_actor(path, actor):
+    """Child actors kept out of the shuffle and the logic.
+
+    * Every actor of the child Death Mountain Crater maps: they stay vanilla,
+      and a source shared by both ages keeps only its adult copy.
+    * The unreachable fortress bank of Gerudo Valley, including its buried
+      grotto: the child map contains these actors despite the bridge being
+      impassable. The far plateau is west of x=-15 at y~100; its grotto is at
+      y~84. Keep the lower river ledges (y~48) and crate/heart ledge (x~-9, y~90).
+
+    Filter candidates only: decoded maps and original actor indices stay intact.
+    """
+    if map_age(path) != 'child':
+        return False
+    if path.startswith('Banc/DeathMountainCrater/'):
+        return True
+    position = actor.get('Translate')
+    return (path.startswith('Banc/GerudoValley/')
+            and isinstance(position, list) and len(position) == 3
+            and position[0] < -15 and position[1] >= 80)
 
 
 def source_age(variants):
@@ -383,6 +482,44 @@ _MIDO_CHESTS = ('KF Midos Bottom Left Chest', 'KF Midos Bottom Right Chest', 'KF
                 'KF Midos Top Right Chest')
 KNOWN_CHEST_GROUPS = {f'KokiriForest#{ident}': _MIDO_CHESTS for ident in
                       (10831981390482426294, 4555665598794293658, 9725242744547055868, 12786193094758345086)}
+# Small key chests reached before any locked door of their dungeon. Their eight-way
+# group gave them the rule of the deepest key chest, so with key rings in their
+# dungeon nothing of the Fire Temple was open without keys (16/11): the ring could
+# only go behind its own doors.
+# * Fire Temple: the entrance (y = 100) opens on the left (x = -6, no chain) into the
+#   boss door room (boss door chain at x = -39); its key chest FiT_room2_chest_1
+#   (-39, 105, 25) is the Near Boss Chest. The chained right door (x = +6) leads to
+#   the big lava room (FiT_room1/22).
+# * Forest Temple: FoT_room0_chest_1, the chest up the tree of the first room
+#   (vanilla first small key, checked in game 16/11).
+KNOWN_CHEST_GROUPS.update({
+    'FireTemple#5634724236470386190': ('Fire Temple Near Boss Chest',),
+    'ForestTemple#1171460703078800858': ('Forest Temple First Room Chest',),
+})
+
+
+# Chests whose rule is a remake event of their own (``remake.json`` events), not the
+# rules of the AP chests they share an item with. Goron City has six chests where AP
+# has three maze chests: matched by item, GC_chest_6 (behind the silver boulder) got
+# the bombs-only rule of the center and right chests and held the Kokiri Emerald in
+# logic (Discord 16/11). The matching (pool, tracker, names) is unchanged.
+CHEST_RULE_EVENTS = {
+    # Kakariko's two freestanding heart pieces, told apart by position (17/11).
+    'KakarikoVillage#free#13389209437182306002': 'Kak Windmill Heart Piece',     # Kak_heart_piece_2
+    'KakarikoVillage#free#17926402522258180222': 'Kak Impas House Heart Piece',  # Kak_heart_piece_1
+    'GoronCity#10944569637726152230': 'GC Lower Ledge Chests',   # GC_chest_1 (-52, 95, 26)
+    'GoronCity#9159710900681116662': 'GC Lower Ledge Chests',    # GC_chest_2 (-52, 95, 32)
+    'GoronCity#4402942101476009858': 'GC Hammer Rock Chest',     # GC_chest_3 (-48, 114, 2)
+    'GoronCity#14647422914070455120': 'GC Maze Rocks',           # GC_chest_4 (-47, 114, -5)
+    'GoronCity#1176975953041865014': 'GC Maze Rocks',            # GC_chest_5 (-47, 114, -2)
+    'GoronCity#3870071239709713434': 'GC Silver Rock Chest',     # GC_chest_6 (-43, 114, -8)
+}
+
+
+def rule_members(entry):
+    """Members of the logic rule of a matched chest: its own event, else its AP locations."""
+    event = CHEST_RULE_EVENTS.get(entry['id'])
+    return ['Souls|' + event] if event else list(entry['ap'])
 
 
 # Invisible chests (``Obj_TBox_GlassTruth*``) only show with the Lens of Truth.

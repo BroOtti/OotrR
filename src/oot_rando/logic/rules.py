@@ -22,6 +22,7 @@ MEDALLIONS = ('Forest Medallion', 'Fire Medallion', 'Water Medallion', 'Shadow M
 AP_VANILLA_SETTINGS = {
     'logic_rules': 'glitchless', 'open_forest': 'closed', 'open_kakariko': 'closed',
     'open_door_of_time': False, 'zora_fountain': 'closed', 'gerudo_fortress': 'normal',
+    'open_gerudo_valley_bridge': False,
     'bridge': 'vanilla', 'bridge_stones': 3, 'bridge_medallions': 6, 'bridge_rewards': 9,
     'bridge_tokens': 100, 'bridge_hearts': 20, 'trials': 6,
     'lacs_condition': 'vanilla', 'lacs_stones': 3, 'lacs_medallions': 6, 'lacs_rewards': 9,
@@ -36,6 +37,7 @@ AP_VANILLA_SETTINGS = {
     'complete_mask_quest': False, 'disable_trade_revert': False, 'fix_broken_drops': False,
     'hints': 'none', 'keysanity': False, 'shuffle_scrubs': 'off', 'shuffle_pots': 'off',
     'shuffle_child_trade': 'vanilla', 'blue_fire_arrows': False, 'had_night_start': False,
+    'shuffle_master_sword': False, 'shuffle_gerudo_card': False, 'skip_child_zelda': False,
 }
 
 
@@ -169,7 +171,17 @@ class Logic:
             names[escape_name(item)] = item
         remake = getattr(data, 'remake', None) or {}
         # Remake-only events ({region: {event: rule}}).
-        self.remake_events = remake.get('events') or {}
+        self.remake_events = copy.deepcopy(remake.get('events') or {})
+        # Remake clear events override the base boss rules. Keep those events
+        # consistent with the shuffled-sword requirements of the boss rewards.
+        for region in ('Phantom Ganon Boss Room', 'Twinrova Boss Room'):
+            for event, rule in self.remake_events.get(region, {}).items():
+                self.remake_events[region][event] = (
+                    f'({rule}) and (not shuffle_master_sword or has_adult_sword '
+                    'or can_use(Kokiri_Sword))')
+        for event, rule in self.remake_events.get('Bongo Bongo Boss Room', {}).items():
+            self.remake_events['Bongo Bongo Boss Room'][event] = rule.replace(
+                'is_adult', 'has_adult_sword').replace('Kokiri_Sword', 'can_use(Kokiri_Sword)')
         events = set()
         for region in data.regions:
             for event in region.get('events', {}):
@@ -217,6 +229,10 @@ class Logic:
             own = {l: r for l, r in region.get('locations', {}).items()
                    if REMAKE_LOCATION_REGIONS.get(l, (None,))[0] != name}
             for location, rule in dict(own, **moved.get(name, {})).items():
+                # Drawing the sword is a shuffled reward; reaching its pedestal
+                # still grants the separate, unshuffled Time Travel location.
+                if location == 'ToT Master Sword':
+                    rule = REMAKE_LOCATION_RULES.get('Master Sword Pedestal', rule)
                 rule = REMAKE_LOCATION_RULES.get(location, rule)
                 extra_rule = shop_rule(data.vanilla_item(location))
                 if extra_rule:

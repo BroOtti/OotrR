@@ -11,7 +11,10 @@ PKG = SRC / 'oot_rando'
 
 datas = [
     (str(PKG / 'logic' / 'world'), 'oot_rando/logic/world'),
-    # Run by the external Python of HookshotBuilder to extract icons (by path).
+    # Title screen badge image (patching/title_badge.py).
+    (str(PKG / 'patching' / 'title_badge.rgba.zlib'), 'oot_rando/patching'),
+    # Icon extraction: in process (Pillow and texture2ddecoder are bundled), or by path with
+    # HookshotBuilder's Python.
     (str(PKG / 'tracker' / 'icon_extract.py'), 'oot_rando/tracker'),
     (str(ROOT / 'README.md'), '.'),
 ]
@@ -29,7 +32,7 @@ a = Analysis(
     [str(ROOT / 'packaging' / 'launcher.py')],
     pathex=[str(SRC)],
     datas=datas,
-    hiddenimports=hiddenimports + ['yaml'],
+    hiddenimports=hiddenimports + ['yaml', 'PIL.Image', 'PIL.ImageTk', 'texture2ddecoder'],
     excludes=['pytest', 'numpy', 'matplotlib'],
     noarchive=False,
 )

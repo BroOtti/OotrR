@@ -44,6 +44,9 @@ def scan_fingerprint(groups, enemies, extra):
     enemies = [dict(enemy, locks=[lock for lock in enemy['locks'] if not lock.get('direct')])
                if any(lock.get('direct') for lock in enemy.get('locks') or ()) else enemy
                for enemy in enemies]
+    # ``mechanics`` only loosens the dungeon entry souls (older catalogs, without
+    # it, keep every soul of the dungeon): earlier patches remain valid.
+    enemies = [{k: v for k, v in enemy.items() if k != 'mechanics'} for enemy in enemies]
     return hashlib.sha256(_canonical({'groups': groups, 'enemies': enemies, 'extra': extra})).hexdigest()
 
 
@@ -72,7 +75,7 @@ def ap_option_specs():
         if option.kind == 'items':
             continue  # starting items: the apworld's own start_inventory_from_pool
         values = [v for v in option.allowed() if option.supported(v)]
-        if option.name in AP_SKIPPED or len(values) < 2:
+        if option.name in AP_SKIPPED or (len(values) < 2 and option.kind != 'list'):
             continue
         specs.append({'name': option.name, 'kind': option.kind, 'label': option.label, 'default': option.default,
                       'values': values, 'help': option.help})
@@ -102,7 +105,11 @@ def player_yaml(values, open_forest, name='Player'):
     for spec in ap_option_specs():
         value = current[spec['name']]
         # Quoted: YAML would read ``off`` as false and ``4`` as an index.
-        text = ('true' if value else 'false') if spec['kind'] == 'bool' else f"'{ap_value_name(value)}'"
+        if spec['kind'] == 'list':
+            import json
+            text = json.dumps(list(value), ensure_ascii=False)
+        else:
+            text = ('true' if value else 'false') if spec['kind'] == 'bool' else f"'{ap_value_name(value)}'"
         lines.append(f'  {spec["name"]}: {text}')
     lines.append(f'  accessibility: {"full" if values["accessibility"] == "full" else "minimal"}')
     if values['start_inventory_from_pool']:
@@ -127,8 +134,10 @@ def _catalog_variants():
                       shopsanity='4', tokensanity='all', shuffle_scrubs='low', shuffle_freestanding_items='all',
                       shuffle_npc_gifts=True, shuffle_boss_rewards=True, shuffle_great_fairies=True,
                       shuffle_quest_rewards=True, shuffle_pots='all', shuffle_crates='all', shuffle_beehives=True,
-                      shuffle_bushes=True, shuffle_rocks=True, shuffle_mapcompass='dungeon',
-                      shuffle_smallkeys='keysanity', shuffle_bosskeys='keysanity')
+                      shuffle_master_sword=True, shuffle_gerudo_card=True,
+                      shuffle_bushes=True, shuffle_rocks=True, shuffle_trees=True, shuffle_mapcompass='dungeon',
+                      shuffle_smallkeys='keysanity', shuffle_bosskeys='keysanity',
+                      shuffle_song_items='any')
     for matching in ('strict', 'scene'):
         for spawns in ('off', 'bosses', 'regional', 'all'):
             for rings in ('off', 'all'):

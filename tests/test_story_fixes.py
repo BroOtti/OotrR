@@ -12,21 +12,6 @@ from oot_rando.patching import story_fixes as s
 NUP = os.environ.get('OOT_NUP')
 
 
-class SheikUnits(unittest.TestCase):
-    def test_presence_added_to_the_only_sheik(self):
-        raw = byml_codec.dump({'endian': '<', 'version': 7, 'root': {'Actors': [
-            {'Gyaml': 'Obj_TimeTemple_MasterSword_A_01', 'Hash': 1},
-            {'Gyaml': s.SHEIK, 'Hash': 2}]}})
-        edits = s.sheik_presence_edits(Byml(raw).root)
-        root = Byml(patch_strings(raw, edits)).root
-        self.assertEqual(root['Actors'][1]['Presence'], s.SHEIK_PRESENCE_ENTRY)
-        self.assertNotIn('Presence', root['Actors'][0])
-        with self.assertRaises(ValueError):    # never applied twice
-            s.sheik_presence_edits(root)
-        with self.assertRaises(ValueError):    # no Sheik
-            s.sheik_presence_edits({'Actors': [{'Gyaml': 'Npc_X'}]})
-
-
 class ZoraRiverWallUnits(unittest.TestCase):
     @mock.patch.object(s, 'ZORA_RIVER_WALLS', tuple(range(10, 17)))   # 32-bit hashes in the fixture
     def test_river_mouth_walls_become_child_only(self):
@@ -45,6 +30,58 @@ class ZoraRiverWallUnits(unittest.TestCase):
             s.zora_river_wall_edits(root)
         with self.assertRaises(ValueError):    # a wall missing
             s.zora_river_wall_edits({'Actors': actors[:3]})
+
+
+class LakeTreeWallUnits(unittest.TestCase):
+    @mock.patch.object(s, 'LAKE_TREE_WALL_HASH', 10)   # 32-bit hash in the fixture
+    def test_island_tree_wall_becomes_child_only(self):
+        actors = [{'Gyaml': 'Land_LakeHrl_Tree_A_01', 'Hash': 1},
+                  {'Gyaml': s.LAKE_TREE_WALL, 'Hash': 10, 'Presence': dict(s.LAKE_TREE_WALL_VANILLA)},
+                  {'Gyaml': s.LAKE_TREE_WALL, 'Hash': 2}]
+        raw = byml_codec.dump({'endian': '<', 'version': 7, 'root': {'Actors': actors}})
+        edits, index = s.lake_tree_wall_edits(Byml(raw).root)
+        self.assertEqual(index, 1)
+        root = Byml(patch_strings(raw, edits)).root
+        self.assertEqual(root['Actors'][1]['Presence'], s.LAKE_TREE_WALL_PRESENCE_ENTRY)
+        self.assertEqual(root['Actors'][0], actors[0])
+        self.assertEqual(root['Actors'][2], actors[2])
+        with self.assertRaises(ValueError):    # never applied twice
+            s.lake_tree_wall_edits(root)
+        with self.assertRaises(ValueError):    # wall missing
+            s.lake_tree_wall_edits({'Actors': actors[:1]})
+
+
+class KakarikoBurningUnits(unittest.TestCase):
+    @staticmethod
+    def gamedata(programs, medals=s.KAKARIKO_MEDALS):
+        from oot_rando.patching.soul_adapter import murmur3
+        U32, U64 = byml_codec.U32, byml_codec.U64
+        data = {'Bool': [{'Hash': U32(murmur3(n)), 'DefaultValue': False, 'ResetTypeValue': 0, 'SaveFileIndex': 0}
+                         for n in medals],
+                'BoolExp': [{'Hash': U32(murmur3(n)), 'ResetTypeValue': 0, 'SaveFileIndex': -1,
+                             'Values': [[U64(v) for v in step] for step in p]} for n, p in programs.items()]}
+        return byml_codec.dump({'endian': '<', 'version': 7, 'root': {'Data': data}})
+
+    def test_burning_and_burnt_banc_read_the_three_medallions(self):
+        from oot_rando.patching.soul_adapter import murmur3
+        vanilla = {name: pair[0] for name, pair in s._kakariko_programs().items()}
+        raw = self.gamedata(vanilla)
+        self.assertFalse(s.kakariko_burning_applied(raw))
+        patched, report = s.kakariko_burning_on_medallions(raw)
+        self.assertTrue(s.kakariko_burning_applied(patched))
+        self.assertEqual(report['medallions'], list(s.KAKARIKO_MEDALS))
+        programs = {int(e['Hash']): [[int(v) for v in st] for st in e['Values']]
+                    for e in byml_codec.load(patched)['root']['Data']['BoolExp']}
+        medals = [[0, murmur3(n)] for n in s.KAKARIKO_MEDALS] + [[3], [3]]
+        adult = [[0, murmur3('Sequence_IsChildhood')], [5]]
+        self.assertEqual(programs[murmur3(s.KAKARIKO_ALTERNATIVE)], adult + medals + [[3]])
+        burning = programs[murmur3(s.KAKARIKO_BURNING)]
+        self.assertEqual(burning[:len(adult) + len(medals)], adult + medals)
+        self.assertNotIn([10, s.KAKARIKO_SAGES], burning)
+        with self.assertRaises(ValueError):    # never applied twice
+            s.kakariko_burning_on_medallions(patched)
+        with self.assertRaises(ValueError):    # a medallion flag missing
+            s.kakariko_burning_on_medallions(self.gamedata(vanilla, s.KAKARIKO_MEDALS[:2]))
 
 
 @unittest.skipUnless(NUP, 'OOT_NUP not set')
@@ -151,15 +188,22 @@ class GameFlows(unittest.TestCase):
                 self.assertIn(s.GREAT_FAIRY_FLAG_PREFIX + name, queried)
                 self.assertFalse(queried & {'IsGet.' + a for _, _, a in s.GREAT_FAIRIES})
 
+    def test_great_fairy_reward_accepts_a_song_silent_add(self):
+        # A song on a Great Fairy: song_adapter's text_get turned her pose into a silent add.
+        name, reward, actor = s.GREAT_FAIRIES[0]
+        flow = s._Chart(self.read(s.fairy_flow(name)))
+        gift = flow.event(reward, 'SubFlowEvent')
+        gift.data.res_flowchart_name, gift.data.entry_point_name = 'GetPouchContent', 'GetPouchContentByActorName'
+        gift.data.params.data = {'ActorName': 'Item_Melody_StormSong'}
+        flow.expected[reward] = {'ActorName': 'Item_Melody_StormSong'}
+        source, _ = flow.write()
+        raw, _ = s._fairy_reward_flag(name, reward, actor)(source)
+        events = self.chart(raw)
+        self.assertEqual(events['RandoGreatFairyGiven'].data.nxt.v.name, reward)
+        self.assertEqual(events[reward].data.entry_point_name, 'GetPouchContentByActorName')
+
     def test_great_fairy_flags_unique(self):
         self.assertEqual(len(s.great_fairy_saved_flags()), 6)
-
-    def test_temple_sheik(self):
-        raw = self.read(s.TEMPLE_MAP)
-        root = Byml(patch_strings(raw, s.sheik_presence_edits(Byml(raw).root))).root
-        sheik = [a for a in root['Actors'] if a.get('Gyaml') == s.SHEIK]
-        self.assertEqual(len(sheik), 1)
-        self.assertEqual(sheik[0]['Presence'], s.SHEIK_PRESENCE_ENTRY)
 
     def test_zora_river_walls(self):
         raw = self.read(s.ZORA_RIVER_MAP)
@@ -175,6 +219,141 @@ class GameFlows(unittest.TestCase):
         for index, (a, b) in enumerate(zip(before['Actors'], root['Actors'])):
             if index not in indices:
                 self.assertEqual(a, b)
+
+    def test_zora_river_child_walls(self):
+        # The same seven walls in the child map: same places, adult-only there.
+        adult = {tuple(round(x, 1) for x in a['Translate']) for a in Byml(self.read(s.ZORA_RIVER_MAP)).root['Actors']
+                 if a.get('Hash') in s.ZORA_RIVER_WALLS}
+        raw = self.read(s.ZORA_RIVER_CHILD_MAP)
+        before = Byml(raw).root
+        edits, indices = s.zora_river_child_wall_edits(before)
+        root = Byml(patch_strings(raw, edits)).root
+        walls = [a for a in root['Actors'] if a.get('Hash') in s.ZORA_RIVER_CHILD_WALLS]
+        self.assertEqual({tuple(round(x, 1) for x in a['Translate']) for a in walls}, adult)
+        self.assertTrue(all(a['Presence'] == {'FlagName': 'Sequence_IsChildhood', 'IsCheckLazy': False,
+                                              'IsNegation': True} for a in walls))
+        for index, (a, b) in enumerate(zip(before['Actors'], root['Actors'])):
+            if index not in indices:
+                self.assertEqual(a, b)
+
+    def test_lake_tree_wall(self):
+        raw = self.read(s.LAKE_TREE_MAP)
+        before = Byml(raw).root
+        edits, index = s.lake_tree_wall_edits(before)
+        root = Byml(patch_strings(raw, edits)).root
+        self.assertEqual(root['Actors'][index]['Presence'], s.LAKE_TREE_WALL_PRESENCE_ENTRY)
+        self.assertEqual(root['Actors'][index]['Translate'], before['Actors'][index]['Translate'])
+        for position, (a, b) in enumerate(zip(before['Actors'], root['Actors'])):
+            if position != index:
+                self.assertEqual(a, b)
+
+    def test_pedestal_open_from_first_adult_arrival(self):
+        # 15-16/11: adult Link could not go back to child before the Forest Temple.
+        import ainb
+        raw = self.nup.read(self.nup.latest('romfs/' + s.PEDESTAL_MODULE))
+        patched, report = s.pedestal_after_first_adult_arrival(raw)
+        before, after = (ainb.AINB.from_binary(x).as_dict() for x in (raw, patched))
+        gate = after['Nodes'][0]['Parameters']['Inputs']['String'][0]
+        self.assertEqual((gate['Name'], gate['Default Value']), ('GameDataNameBoolExp', s.PEDESTAL_GATE))
+        before['Nodes'][0]['Parameters']['Inputs']['String'][0]['Default Value'] = s.PEDESTAL_GATE
+        self.assertEqual(before, after)
+        self.assertEqual(report['before'], s.PEDESTAL_BEFORE)
+        with self.assertRaises(ValueError):    # never applied twice
+            s.pedestal_after_first_adult_arrival(patched)
+
+    def test_prelude_requires_forest_medallion_and_preserves_native_one_shot(self):
+        import ainb
+        import copy
+        raw = self.nup.read(self.nup.latest('romfs/' + s.PRELUDE_MODULE))
+        patched, report = s.prelude_on_forest_medallion(raw)
+        before = ainb.AINB.from_binary(raw).as_dict()
+        after = ainb.AINB.from_binary(patched).as_dict()
+        expected = copy.deepcopy(before)
+        node = expected['Nodes'][3]
+        node['Name'] = 'HoldGameDataGetBoolSimple'
+        node['Parameters']['Inputs']['String'][0].update(
+            {'Name': 'GameDataNameBool', 'Default Value': s.PRELUDE_MEDAL})
+        node['Parameters']['Inputs']['Int'] = [{'Name': 'GameDataArrayIndex', 'Default Value': -1,
+            'Node Index': -1, 'Output Index': 0, 'Flags': ['Uses Default', 'Is Output']}]
+        self.assertEqual(after, expected)
+        self.assertEqual(report['medallion'], s.PRELUDE_MEDAL)
+        # Native area disappears after teaching, regardless of the shuffled song.
+        root = Byml(self.read(s.TEMPLE_MAP)).root
+        area = next(a for a in root['Actors'] if a['Hash'] == 3406708549665898725)
+        self.assertEqual(area['Presence'], {'FlagName': 'Market_Adult_GetLightPrelude',
+                                          'IsCheckLazy': False, 'IsNegation': True})
+        with self.assertRaises(ValueError):
+            s.prelude_on_forest_medallion(patched)
+
+    def test_kakariko_burning_on_medallions_in_game_data(self):
+        from oot_rando.patching.game_defaults import GAMEDATA
+        raw = self.read(GAMEDATA)
+        patched, report = s.kakariko_burning_on_medallions(raw)
+        self.assertTrue(s.kakariko_burning_applied(patched))
+        self.assertEqual(report['expressions'], [s.KAKARIKO_BURNING, s.KAKARIKO_ALTERNATIVE])
+        before = byml_codec.load(raw)['root']['Data']
+        after = byml_codec.load(patched)['root']['Data']
+        # Only the two programs change; the sages' expression itself stays for its other readers.
+        self.assertEqual(len(before['BoolExp']), len(after['BoolExp']))
+        from oot_rando.patching.soul_adapter import murmur3
+        changed = {murmur3(s.KAKARIKO_BURNING), murmur3(s.KAKARIKO_ALTERNATIVE)}
+        for old, new in zip(before['BoolExp'], after['BoolExp']):
+            if int(old['Hash']) not in changed:
+                self.assertEqual(old, new)
+        self.assertEqual(before['Bool'], after['Bool'])
+        with self.assertRaises(ValueError):
+            s.kakariko_burning_on_medallions(patched)
+
+    def test_prelude_does_not_roll_back_later_sages(self):
+        raw = self.read('Event/EventFlow/AllSage.bfevfl.zs')
+        patched, report = s.prelude_keeps_later_sage_progress(raw)
+        events = self.chart(patched)
+        gate = events['Event37'].data.nxt.v
+        self.assertEqual(gate.data.params.data, {'GameDataName': s.PRELUDE_LATER_STEP})
+        self.assertNotIn(0, gate.data.cases)     # later progress: finish after teaching
+        self.assertIs(gate.data.cases[1].v, events['Event34'])
+        self.assertEqual(report['rollback'], 'Event34')
+        with self.assertRaises(ValueError):
+            s.prelude_keeps_later_sage_progress(patched)
+
+    def test_light_arrows_require_both_medallions_and_only_play_once(self):
+        import ainb
+        import itertools
+        raw = self.nup.read(self.nup.latest('romfs/' + s.LIGHT_ARROWS_MODULE))
+        patched, report = s.light_arrows_on_medallions(raw)
+        nodes = ainb.AINB.from_binary(patched).as_dict()['Nodes']
+        self.assertEqual(nodes[8]['Plugs']['Generic'], [{'Node Index': 5, 'Name': 'BoolMulti'}])
+
+        def evaluate(index, output, flags, touching):
+            node = nodes[index]
+            if node['Name'] == 'HoldGameDataGetBoolSimple':
+                return flags[node['Parameters']['Inputs']['String'][0]['Default Value']]
+            if node['Name'] == 'HoldActorObserverBySensorHitInfo':
+                return touching
+            if node['Name'] == 'InvBool.module':
+                return not evaluate(2, 0, flags, touching)
+            if node['Name'] == 'OperateAND':
+                sources = node['Parameters']['Inputs']['Bool'][0]['Sources']
+                value = all(evaluate(p['Node Index'], p['Output Index'], flags, touching) for p in sources)
+                return value if output == 1 else not value
+            raise AssertionError(node['Name'])
+
+        for shadow, spirit, played, touching in itertools.product((False, True), repeat=4):
+            flags = dict(zip((*s.LIGHT_ARROWS_MEDALS, s.LIGHT_ARROWS_PLAYED), (shadow, spirit, played)))
+            with self.subTest(flags=flags, touching=touching):
+                area = next(p for p in nodes[1]['Parameters']['Inputs']['Bool'] if p['Name'] == 'Logic_Create')
+                request = next(p for p in nodes[0]['Parameters']['Inputs']['Bool'] if p['Name'] == 'EventRequestTrigger')
+                self.assertEqual(evaluate(area['Node Index'], area['Output Index'], flags, touching),
+                                 shadow and spirit and not played)
+                self.assertEqual(evaluate(request['Node Index'], request['Output Index'], flags, touching),
+                                 shadow and spirit and not played and touching)
+        self.assertEqual(report['medallions'], list(s.LIGHT_ARROWS_MEDALS))
+        # Geometry, event binding and collision test are untouched.
+        before = ainb.AINB.from_binary(raw).as_dict()['Nodes']
+        for index in (0, 3):
+            self.assertEqual(before[index], nodes[index])
+        with self.assertRaises(ValueError):
+            s.light_arrows_on_medallions(patched)
 
     def test_zelda_escape_on_stones_at_item_get(self):
         from oot_rando.patching.qol_patches import ocarina_guide_on_get
@@ -215,18 +394,148 @@ class GameFlows(unittest.TestCase):
             check = check.data.cases[0].v
         self.assertEqual(check.data.params.data, events['Event37'].data.params.data)
         self.assertIsNone(events['RandoDungeonEndStonesCount'].data.nxt.v)  # Step03: native skipped
-        # The native check reaches Step03 (Event37) on the Fire and Water quests alone.
-        native, read = events['Event38'], []
-        while native.name != 'Event37':
-            read.append(native.data.params.data['GameDataName'])
-            native = native.data.cases[0].v
-        self.assertEqual(read, ['Get_StoneOfFire_IsCompleted_Exp', 'Get_StoneOfWater_IsCompleted_Exp'])
+        # The native check reads the Fire and Water quests alone (never the Kokiri Emerald)...
+        fire, both = events['Event38'], events['Event39']
+        self.assertEqual(fire.data.params.data, {'GameDataName': 'Get_StoneOfFire_IsCompleted_Exp'})
+        self.assertIs(fire.data.cases[0].v, both)
+        # ...and, 17/11: both dungeon quests done no longer give Step03 without the two stones.
+        self.assertEqual(both.data.params.data, {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'})
+        self.assertEqual({k: v.v.name for k, v in both.data.cases.items()}, {1: 'Event147'})
         started = events['Event7'].data.nxt.v.data             # after Step02 of the send-off
         self.assertEqual(started.params.data, {'GameDataName': s.FIRE_QUEST_STARTED})
         self.assertEqual(started.cases[1].v.name, 'Event62')   # fire quest moved only if not started
         self.assertEqual(started.cases[0].v.name, 'RandoSendOffStonesStarted')
         self.assertEqual(events['Event62'].data.nxt.v.name, 'RandoSendOffStonesStarted')
         self.check_kept(source, raw)
+
+    def test_zelda_escape_on_stones_at_zelda_talk(self):
+        # 17/11: the last stone got after the send-off; talking to Zelda checks them again.
+        source, _ = s.door_of_time_forward(self.read(s.ZELDA_FLOW))
+        raw, report = s.zelda_escape_on_talk(source)
+        self.assertEqual(report['start'], 'RandoTalkStonesStarted')
+        events = self.chart(raw)
+        started = events['RandoTalkStonesStarted'].data
+        self.assertEqual(started.params.data, {'GameDataName': s.DOOR_STARTED})
+        self.assertEqual(started.cases[1].v.name, 'Event99')                  # before the send-off: vanilla talk
+        before = started.cases[0].v.data
+        self.assertEqual(before.params.data, {'GameDataName': s.DOOR_BEFORE_ESCAPE})
+        self.assertEqual(before.cases[0].v.name, 'Event99')                   # Step03 reached: vanilla talk
+        check, held = before.cases[1].v, []
+        while check.name.startswith('RandoTalkStonesStone'):
+            self.assertEqual(check.data.cases[1].v.name, 'Event99')           # one missing: vanilla talk
+            held.append(check.data.params.data['GameDataName'].removeprefix(s.STONE_FLAG_PREFIX))
+            check = check.data.cases[0].v
+        self.assertEqual(held, list(s.STONES))
+        self.assertEqual(check.data.params.data, self.chart(self.read(s.DOOR_FLOW))['Event37'].data.params.data)
+        self.assertEqual(events['RandoTalkStonesCount'].data.nxt.v.name, 'Event99')   # then the talk
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.zelda_escape_on_talk(raw)
+
+    def test_gohma_scene_skips_stone_menu_presentation(self):
+        # 15/11: the first-stone menu presentation showed the stones, then none.
+        source = self.read(s.GOHMA_STONE_FLOW)
+        self.assertEqual(self.chart(source)['Event56'].data.nxt.v.name, 'Event52')
+        raw, report = s.skip_stone_menu_presentation(source)
+        self.assertEqual(report['skipped'], 'Event52')
+        self.assertIsNone(self.chart(raw)['Event56'].data.nxt.v)
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.skip_stone_menu_presentation(raw)
+
+    def test_dampe_first_race_until_its_prize_is_opened(self):
+        # 17/11: with the Hookshot found elsewhere, the first race (and its chest) was skipped.
+        source = self.read(s.DAMPE_FLOW)
+        raw, report = s.dampe_first_race_until_prize(source)
+        events = self.chart(raw)
+        self.assertEqual(report['checks'], sorted(s.DAMPE_HOOKSHOT_CHECKS))
+        start = events['RandoDampeEvent129']
+        self.assertEqual(dict(start.data.params.data), {'GameDataName': s.DAMPE_FIRST_PRIZE, 'Index': -1})
+        self.assertEqual({k: v.v.name for k, v in start.data.cases.items()}, {0: 'Event131', 1: 'Event287'})
+        self.assertIs(events['Event462'].data.nxt.v, start)
+        self.assertEqual(events['RandoDampeEvent18'].data.cases[1].v.name, 'RandoDampeEvent0')
+        self.assertEqual(events['RandoDampeEvent262'].data.cases[1].v.name, 'RandoDampeEvent260')
+        # Until the first prize is opened, the result shows the Hookshot chest whatever
+        # ClearCount holds (saves where the first race already counted as cleared).
+        gate = events['RandoDampeResult']
+        self.assertEqual({k: v.v.name for k, v in gate.data.cases.items()}, {0: 'Event275', 1: 'Event277'})
+        from oot_rando.patching.event_patch import _flow as flow_of
+        result = next(e for e in flow_of(raw).flowchart.entry_points if e.name == 'Result')
+        self.assertEqual(result.main_event.v.name, 'RandoDampeResult')
+        # The race finish counts a clear only once the first prize is opened.
+        finish = events['Event31'].data.nxt.v
+        self.assertEqual(finish.name, 'RandoDampeEvent442')
+        self.assertEqual({k: v.v.name for k, v in finish.data.cases.items()}, {0: 'Event379', 1: 'Event33'})
+        mark = events['Event201'].data.nxt.v
+        self.assertEqual((mark.name, dict(mark.data.params.data)['GameDataName']),
+                         ('RandoDampeFirstPrizeOpened', s.DAMPE_FIRST_PRIZE))
+        self.assertEqual(mark.data.nxt.v.name, 'Event95')
+        # No live link reaches a Hookshot/Longshot check any more.
+        from oot_rando.patching.qol_patches import _predecessors
+        from oot_rando.patching.event_patch import _flow
+        chart = _flow(raw).flowchart
+        live = {e.name for e in chart.events if e.name not in s.DAMPE_HOOKSHOT_CHECKS}
+        for name in s.DAMPE_HOOKSHOT_CHECKS:
+            old = next(e for e in chart.events if e.name == name)
+            self.assertFalse([l for l in _predecessors(chart, old) if getattr(l[0], 'name', None) in live], name)
+        # No reachable event of the race reads the Hookshot or Longshot any more.
+        reachable, todo = set(), [p.main_event.v for p in chart.entry_points if p.main_event.v]
+        while todo:
+            e = todo.pop()
+            if e.name in reachable:
+                continue
+            reachable.add(e.name)
+            data = e.data
+            for link in [getattr(data, 'nxt', None)] + list((getattr(data, 'cases', None) or {}).values())                     + list(getattr(data, 'forks', None) or []) + [getattr(data, 'join', None)]:
+                if link is not None and getattr(link, 'v', None) is not None:
+                    todo.append(link.v)
+        readers = [e.name for e in chart.events if e.name in reachable and getattr(e.data, 'params', None) is not None
+                   and {v for v in dict(e.data.params.data).values() if isinstance(v, str)} & {'Item_Hookshot', 'Item_Longshot'}]
+        self.assertEqual(readers, [])
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.dampe_first_race_until_prize(raw)
+        self.assertEqual(s.dampe_saved_flags(), {s.DAMPE_FIRST_PRIZE: False})
+
+    def test_kokiri_exit_guard_lowers_wall_after_deku_tree(self):
+        # 16/11: Zelda met before the Deku Tree, the guard's last schedule state hid the
+        # only talk that lowers the bridge wall.
+        from oot_rando.patching.event_patch import _flow
+        source = self.read(s.KOKIRI_EXIT_FLOW)
+        raw, report = s.kokiri_exit_guard_steps_aside(source)
+        entries = {e.name: e for e in _flow(raw).flowchart.entry_points}
+        first = entries['KokiriForest_Npc_Kokiri_007_Child_BlockEnd_Talk'].main_event.v
+        self.assertEqual((first.name, report['flag']), ('RandoExitWallUp', s.KOKIRI_EXIT_WALL))
+        self.assertEqual(dict(first.data.params.data), {'GameDataName': s.KOKIRI_EXIT_WALL, 'Index': -1})
+        done = first.data.cases[0].v
+        self.assertEqual(dict(done.data.params.data), {'GameDataName': s.DEKU_TREE_DONE})
+        self.assertEqual({k: v.v.name for k, v in done.data.cases.items()}, {0: 'Event10', 1: 'Event60'})
+        self.assertEqual(first.data.cases[1].v.name, 'Event60')
+        self.assertEqual(entries['Get_StoneOfForest_IsCompleted_Exp_Talk'].main_event.v.name, 'Event10')
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.kokiri_exit_guard_steps_aside(raw)
+
+    def test_link_goron_gives_tunic_outside_his_quest_step(self):
+        # 19/11: the tunic only came at SageOfFire TalkDaruniaJr: never after the crater
+        # (Bolero) moved the quest on, nor before Dodongo's Cavern.
+        from oot_rando.patching.event_patch import _flow
+        source = self.read(s.LINK_GORON_FLOW)
+        raw, report = s.link_goron_gives_tunic(source)
+        flow = _flow(raw).flowchart
+        entry = {e.name: e for e in flow.entry_points}[s.LINK_GORON_TALK]
+        has = entry.main_event.v
+        self.assertEqual(dict(has.data.params.data), {'Actor': s.GORON_TUNIC, 'Num': 1})
+        give = has.data.cases[1].v
+        self.assertEqual((give.data.res_flowchart_name, give.data.entry_point_name),
+                         ('Dm_SY_GetInEvent', 'GetInEvent_NotTurn_NotNpc'))
+        self.assertEqual(give.data.params.data['ActorName'], s.GORON_TUNIC_GIFT)
+        self.assertEqual((has.data.cases[0].v.name, give.data.nxt.v.name), ('Event99', 'Event99'))
+        self.assertIn(flow.events.index(give), entry._sub_flow_event_indices)
+        self.assertEqual(report['gift'], 'Obj_Armor_Goron')
+        self.check_kept(source, raw)
+        with self.assertRaises(ValueError):
+            s.link_goron_gives_tunic(raw)
 
     def steps(self):
         from oot_rando.patching.quest_guard import CHALLENGES, challenge_steps
@@ -272,6 +581,28 @@ class GameFlows(unittest.TestCase):
         self.assertEqual({e for e, _, _ in guarded}, {'Event44', 'Event45', 'Event76'})
         self.check_kept(source, raw)
 
+    def test_water_quest_never_moves_back_past_the_letter(self):
+        # Discord 19/11: King Zora back in front of the fountain after leaving the
+        # domain (Impa met late, Zora River owl, diving game won after the letter).
+        from oot_rando.patching.quest_guard import step_requests
+        source = self.read(s.WATER_FLOW)
+        raw, guarded = s.first_arrival_forward(s.WATER_FLOW, source, self.steps())
+        early = {e for e, step in step_requests(source, 'Get_StoneOfWater') if step in s.WATER_EARLY_STEPS}
+        self.assertTrue({'Event64', 'Event80', 'Event45'} <= early)
+        self.assertEqual({e for e, _, _ in guarded}, early)
+        events = self.chart(raw)
+        for event, step in (('Event64', 'Step01'), ('Event80', 'Step02'), ('Event45', 'Step05')):
+            with self.subTest(event=event):
+                guards = [e for e in events.values() if e.name.startswith(s.FORWARD_PREFIX)
+                          and any(c.v.name == event for c in e.data.cases.values())]
+                self.assertEqual([g.data.params.data for g in guards],
+                                 [{'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'}])
+                before = [e for e in events.values() if e.name.startswith(s.FORWARD_PREFIX)
+                          and any(c.v is guards[0] for c in e.data.cases.values())]
+                self.assertEqual([g.data.params.data for g in before],
+                                 [{'GameDataName': f'Get_StoneOfWater_IsAfter_{step}_Exp'}])
+        self.check_kept(source, raw)
+
     def test_trail_and_market_arrivals_keep_their_quests(self):
         steps = self.steps()
         for path, event in ((s.FIRE_STONE_FLOW, 'Event156'), (s.CASTLE_FLOW, 'Event51')):
@@ -299,10 +630,11 @@ class GameFlows(unittest.TestCase):
         bools = {e['Hash'] for e in data['Bool']}
         exps = {e['Hash'] for e in data['BoolExp']}
         stone_flags = tuple(s.STONE_FLAG_PREFIX + stone for stone in s.STONES)
-        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG) + stone_flags:
+        for name in (s.DARUNIA_GIFT_PLAYED, s.TALON_AWAKE, s.SECOND_MALON, s.BRIDGE_CLOSED, s.CLOCK_FLAG,
+                     s.LIGHT_ARROWS_PLAYED, s.PRELUDE_MEDAL) + stone_flags + s.LIGHT_ARROWS_MEDALS:
             self.assertIn(murmur3(name), bools, name)
         for name in (s.AFTER_SARIA_PLAY, s.SHEIK_PRESENCE, s.DOOR_STARTED, s.DOOR_BEFORE_ESCAPE,
-                     s.FIRE_QUEST_STARTED, s.DOOR_PAST_SREP):
+                     s.FIRE_QUEST_STARTED, s.DOOR_PAST_SREP, s.PRELUDE_LATER_STEP):
             self.assertIn(murmur3(name), exps, name)
 
 
