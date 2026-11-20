@@ -299,6 +299,15 @@ preserving the world's fingerprint. Missing stored values mean `song`, and that 
 is omitted from stored settings to preserve earlier seed identities. Behaviour in game
 still needs confirmation.
 
+Before accepting a local seed, generation and replay independently sweep its actual
+placements from the starting inventory with every `Time Travel` grant disabled.
+With a closed door, the child must collect at least one ocarina, the Song of Time,
+and the stones selected above. This includes dependencies: a pickup on a child map
+does not qualify if reaching it requires an item available only as adult. Spare
+ocarinas may remain on adult maps; starting items and sources shared by both ages
+count. An open door skips this check. Archipelago retains its multiworld validation,
+since required items can arrive from other players.
+
 The native altar pack (`Obj_TimeTemple_SpiritStoneBase_A_01`) checks the invalid-condition
 `Market_Child_TimeTempleDoor_OcarinaReacts` before calling the opening event. Its original
 expression rejects the song outside `DoorOfTime` step `Step05`, even after the event flow
