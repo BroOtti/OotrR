@@ -696,6 +696,9 @@ def verify(nup_path, seed_dir):
                                    'items_in_other_worlds': len(multiworld.get('remote', []))})
         nup.stream.close()
         return report
+    if plan.get('before_adult_missing'):
+        raise ValueError('Logic replay: Door of Time items unavailable before adulthood: '
+                         + ', '.join(plan['before_adult_missing']))
     if not plan['beatable']:
         raise ValueError('Logic replay: victory not reached.')
     report.update(souls=len(soul_actors), derived=len(derived), beatable=True, spheres=plan['sphere_count'],
