@@ -17,6 +17,12 @@ class WorldTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World()
 
+    def test_the_fingerprint_is_that_of_upstream_331aa36(self):
+        # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it: it hashes the
+        # logic files, so the options that vary the rules (spiritual_stones) do it in Python, not in them.
+        # Change this value on purpose only, when the logic files change.
+        self.assertEqual(self.world.fingerprint(), 'd17a4130e0fced75a8717fcc4987773db7fd5c3ebd3275a2c893f16157f1a48e')
+
     def test_tables_and_regions(self):
         self.assertEqual(len(self.world.location_table), 1707)
         self.assertEqual(len(self.world.item_table), 225)
