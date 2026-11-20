@@ -199,6 +199,13 @@ def verify(nup_path, seed_dir):
     unpack = lambda path, raw: decompress(raw, d) if path.endswith('.zs') else raw
     report.update(cuccos.check_seed(manifest, members, lambda path: unpack(path, nup.read(members[path])),
                                     lambda path: unpack(path, (seed_dir / 'romfs' / path).read_bytes())))
+    if (manifest.get('skips', {}).get('story_fixes') or {}).get('door_song_condition') is not None:
+        from oot_rando.logic import rando_options
+        requirement = rando_options.stored_value(
+            (manifest.get('settings') or {}).get('full') or {}, 'door_of_time_requirement')
+        if not story_fixes.door_song_condition_applied(out(GAMEDATA), requirement):
+            raise ValueError('Unexpected Door of Time ocarina condition in the game data.')
+        report['story_fixes'] = report.get('story_fixes', 0) + 1
     if (manifest.get('skips', {}).get('story_fixes') or {}).get('scene_conditions') is not None:
         if not story_fixes.scene_expressions_applied(out(GAMEDATA)):
             raise ValueError('Unexpected scene conditions in the game data.')
