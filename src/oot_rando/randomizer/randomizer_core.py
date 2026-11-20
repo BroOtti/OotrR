@@ -164,7 +164,7 @@ class Settings:
         # ``full`` is omitted when unset so that earlier seeds keep their identity.
         return {f.name: (sorted(getattr(self, f.name)) if f.name in ('pool', 'excluded_checks')
                         else {name: self.categories.get(name, False) for name in sorted(CATEGORIES)}
-                        if f.name == 'categories' else dict(sorted(self.full.items()))
+                        if f.name == 'categories' else dict(sorted(rando_options.recorded(self.full).items()))
                         if f.name == 'full' else getattr(self, f.name))
                 for f in fields(self) if not (f.name in ('full', 'archipelago') and getattr(self, f.name) is None)
                 and not (f.name in OPTIONAL_SKIPS and not getattr(self, f.name))}
@@ -474,7 +474,8 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             # Story locks broken by items found in any order (patching/story_fixes.py).
             from oot_rando.patching import story_fixes
             story = {}
-            for path, key, fix in story_fixes.FLOW_FIXES:
+            stones = story_fixes.escape_stones(settings.full)
+            for path, key, fix in story_fixes.flow_fixes(stones):
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
             # Kaepora's first field arrival never plays (its effects are set at the start):
             # its quest step follows the Deku Tree escape instead (patching/owl_advice.py).
@@ -560,9 +561,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             extra_raw[GAMEDATA], story['scene_conditions'] = story_fixes.scene_expressions(extra_raw[GAMEDATA])
             for path, key, fix in story_fixes.scene_module_fixes():
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or read(path))
-            # Zelda's escape on the three stones, checked at every item get.
+            # Zelda's escape on the stones held, checked at every item get.
             extra_raw[ACTION_GUIDE_FLOW], story['zelda_escape_item_get'] = story_fixes.zelda_escape_on_item_get(
-                extra_raw[ACTION_GUIDE_FLOW])
+                extra_raw[ACTION_GUIDE_FLOW], stones)
             # The clock runs before Zelda (Impa's send-off flag set at the start).
             story['clock'] = story_fixes.CLOCK_FLAG
             # Zones open from the start, kept open (patching/world_openings.py).
