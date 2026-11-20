@@ -8,7 +8,7 @@ from unittest.mock import patch
 from oot_rando.logic import rando_options
 from oot_rando.randomizer.randomizer_core import Settings, settings_identity, placements_for, generate, CHESTS
 
-# Identity of the settings below, made by the release before the ``spiritual_stones`` option.
+# Identity of the settings below, made by the release before the ``spiritual_stones`` option (generator 0.12.0).
 BEFORE_SPIRITUAL_STONES = 'e8e5d7d3189491d841fbf79c3618318f456ea443a7755c5544c238466fc1df02'
 
 
@@ -39,16 +39,16 @@ class SettingsTests(unittest.TestCase):
         settings = full_settings()
         self.assertEqual(settings.full['spiritual_stones'], 'all')
         self.assertNotIn('spiritual_stones', settings.to_dict()['full'])
-        self.assertEqual(settings_identity(settings), BEFORE_SPIRITUAL_STONES)
+        self.assertEqual(settings_identity(settings, generator_version='0.12.0'), BEFORE_SPIRITUAL_STONES)
         stored = settings.to_dict()                 # what such a seed stored: no ``spiritual_stones``
         restored = Settings.from_dict(json.loads(json.dumps(stored)))
         self.assertEqual(restored.full['spiritual_stones'], 'all')
-        self.assertEqual(settings_identity(restored), BEFORE_SPIRITUAL_STONES)
+        self.assertEqual(settings_identity(restored, generator_version='0.12.0'), BEFORE_SPIRITUAL_STONES)
 
     def test_vanilla_stones_are_stored_and_make_another_seed(self):
         vanilla = full_settings(spiritual_stones='vanilla')
         self.assertEqual(vanilla.to_dict()['full']['spiritual_stones'], 'vanilla')
-        self.assertNotEqual(settings_identity(vanilla), BEFORE_SPIRITUAL_STONES)
+        self.assertNotEqual(settings_identity(vanilla, generator_version='0.12.0'), BEFORE_SPIRITUAL_STONES)
         restored = Settings.from_dict(json.loads(json.dumps(vanilla.to_dict())))
         self.assertEqual(restored.full['spiritual_stones'], 'vanilla')
         self.assertEqual(settings_identity(restored), settings_identity(vanilla))
