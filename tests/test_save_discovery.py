@@ -4,9 +4,11 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from oot_rando.tracker import auto_tracker
 from oot_rando.tracker.auto_tracker import find_save_slots, newest_save
 
 
@@ -71,6 +73,22 @@ class SaveDiscoveryTests(unittest.TestCase):
                     os.environ.pop('APPDATA', None)
                 else:
                     os.environ['APPDATA'] = previous
+
+    def test_native_linux_longshot_saves_in_xdg_data(self):
+        # Longshot's Linux build: ~/.local/share/longshot/save/<account>/slot_* (round of 18/11).
+        with tempfile.TemporaryDirectory() as temporary:
+            game = Path(temporary) / 'Recomp Library' / 'longshot' / 'Longshot'
+            (game / 'mods').mkdir(parents=True)
+            (game / 'bin').mkdir()
+            (game / 'bin' / 'longshot').write_bytes(b'')
+            data = Path(temporary) / 'share'
+            save = data / 'longshot' / 'save' / '5a3c9e1f0b7d24680000000000000001' / 'slot_00' / 'progress.sav'
+            save.parent.mkdir(parents=True)
+            save.write_bytes(b'x')
+            with mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(data)}), \
+                    mock.patch.object(auto_tracker.os, 'name', 'posix'):
+                self.assertEqual(newest_save(game / 'mods'), save)
+                self.assertNotIn(save, find_save_slots(title='0400486024DEC000', mods=Path(temporary) / 'emu'))
 
     def test_files_outside_slots_are_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
