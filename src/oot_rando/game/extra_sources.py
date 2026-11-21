@@ -435,6 +435,15 @@ def kokiri_spot(entry):
     return KF_ANCHOR_VILLAGE
 
 
+# Physically identified sources must keep their own mechanism instead of the
+# conjunction of every AP check of their type in the area. The cemetery wall
+# drop is adult-only; the soil Skulltula is a separate child check.
+KNOWN_SOURCE_LOCATIONS = {
+    'Graveyard#gs#229475726653285413': 'Graveyard GS Wall',
+    'Graveyard#gs#16798263777516949500': 'Graveyard GS Bean Patch',
+}
+
+
 def match_sources(entries, data, logic, used=()):
     """Assign AP locations to map-based entries (NPC entries come pre-matched)."""
     used = set(used)
@@ -454,8 +463,15 @@ def match_sources(entries, data, logic, used=()):
                       if l not in used and set(cats) & areas and (item is None or v == item))
 
     groups = defaultdict(list)
+    for gid, location in KNOWN_SOURCE_LOCATIONS.items():
+        entry = entries.get(gid)
+        if entry and not entry['reason'] and location in logic.location_region and location not in used:
+            entry.update(kind='exact', ap=[location])
+            used.add(location)
     for entry in entries.values():
         if entry['source'] in EVENT_SOURCES or entry['reason']:
+            continue
+        if entry['id'] in KNOWN_SOURCE_LOCATIONS and entry['kind'] == 'exact':
             continue
         if entry['source'] == 'bossheart':
             location = BOSS_HEARTS.get(entry['folder'])
