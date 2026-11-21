@@ -137,6 +137,12 @@
   }
  },
  "events": {
+  "Hyrule Field": {
+   "HF Fairy Memory Chest": {
+    "rule": "is_child and at('Hyrule Field', is_adult)",
+    "why": "Obj_TBox_A_01_memo11 (2967378296224661060, HF_chest_1): HrlField_Note_11 exists only as adult. Reading it sets HaveReadHrlField_Note11; the native HrlField_Note_11_Treaurebox only opens as child after that memory. Conservatively require the prior adult visit even when chest tracking replaces the native opening dialogue."
+   }
+  },
   "HC Garden Locations": {
    "Met Zelda": {
     "rule": "is_child",

@@ -62,6 +62,22 @@ class GrottoProgressionTests(unittest.TestCase):
         self.assertFalse(rule(state, {}, 'adult'))
         self.assertTrue(rule(state, {'Progressive Hookshot': 1}, 'adult'))
 
+    def test_fairy_memory_chest_requires_a_prior_adult_visit(self):
+        from oot_rando.game.remake_world import rule_members
+        logic = Logic(self.world)
+        logic.virtual = {'memory_chest': rule_members({
+            'id': 'HyruleField#2967378296224661060', 'ap': ['HF Open Grotto Chest']})}
+        counts = Counter({item: 9 for item in logic.referenced
+                          if item not in ('Time Travel', 'HF Fairy Memory Chest')})
+        _, collected, _ = logic.sweep({'memory_chest': None}, logic.new_state(counts))
+        self.assertNotIn('memory_chest', collected)
+        state, collected, _ = logic.sweep({'memory_chest': None},
+                                         logic.new_state(counts + Counter({'Time Travel': 1})))
+        self.assertIn('memory_chest', collected)
+        rule = dict(logic.regions['Hyrule Field']['events'])['HF Fairy Memory Chest']
+        self.assertTrue(rule(state, state.counts, 'child'))
+        self.assertFalse(rule(state, state.counts, 'adult'))
+
     def test_field_scrub_is_only_accessible_as_adult(self):
         logic = Logic(self.world)
         rule = dict(logic.location_rules)['HF Deku Scrub Grotto'][0][1]

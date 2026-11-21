@@ -505,6 +505,8 @@ KNOWN_CHEST_GROUPS.update({
 # the bombs-only rule of the center and right chests and held the Kokiri Emerald in
 # logic (Discord 16/11). The matching (pool, tracker, names) is unchanged.
 CHEST_RULE_EVENTS = {
+    # Read the fairy's memory as adult, then return as child to open its chest.
+    'HyruleField#2967378296224661060': 'HF Fairy Memory Chest',  # Obj_TBox_A_01_memo11
     # Kakariko's two freestanding heart pieces, told apart by position (17/11).
     'KakarikoVillage#free#13389209437182306002': 'Kak Windmill Heart Piece',     # Kak_heart_piece_2
     'KakarikoVillage#free#17926402522258180222': 'Kak Impas House Heart Piece',  # Kak_heart_piece_1

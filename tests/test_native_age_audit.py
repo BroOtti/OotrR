@@ -7,11 +7,12 @@ import _src_path  # noqa: F401
 import os
 import unittest
 from collections import Counter
+from unittest.mock import patch
 
 from oot_rando.game.remake_world import source_age
 from oot_rando.logic import rando_options
 from oot_rando.logic.world import World
-from oot_rando.randomizer.full_randomizer import prepare, vname
+from oot_rando.randomizer.full_randomizer import child_door_missing, prepare, vname
 
 
 @unittest.skipUnless(os.environ.get('OOT_NUP'), 'OOT_NUP absent')
@@ -28,7 +29,8 @@ class NativeAgeAuditTests(unittest.TestCase):
             _, groups, enemies, extra = scan_world(nup, dictionaries(nup), effective_members(nup))
         finally:
             nup.stream.close()
-        cls.prepared = prepare(World(), rando_options.preset('everything'), groups, enemies,
+        options = dict(rando_options.preset('everything'), door_of_time_requirement='all')
+        cls.prepared = prepare(World(), options, groups, enemies,
                                'native-age-audit', extra=extra)
         counts = Counter({item: 99 for item in cls.prepared.relevant if item != 'Time Travel'})
         for members in cls.prepared.logic.virtual.values():
@@ -56,6 +58,21 @@ class NativeAgeAuditTests(unittest.TestCase):
 
     def test_all_other_native_adult_sources_wait_for_adulthood(self):
         self.assert_adult_sources_blocked(skulltulas=False)
+
+    def test_dmc_rupee_and_fairy_memory_cannot_hold_a_required_door_stone(self):
+        c = self.prepared
+        sources = ('DeathMountainCrater#free#17524442172396680694',  # DMC_rupee_7
+                   'HyruleField#2967378296224661060')  # fairy-memory chest
+        for source in sources:
+            self.assertIn(vname(source), c.logic.virtual)
+            for stone in ('Kokiri Emerald', 'Goron Ruby', 'Zora Sapphire'):
+                with self.subTest(source=source, stone=stone):
+                    # All other prerequisites are available; the only copy of
+                    # this required stone is the reported physical pickup.
+                    inventory = dict.fromkeys(c.relevant - {'Time Travel', stone, 'HF Fairy Memory Chest'}, 99)
+                    native = {location: item for location, item in c.base.items() if item != stone}
+                    with patch.dict(c.starting, inventory, clear=True), patch.dict(c.base, native, clear=True):
+                        self.assertEqual(child_door_missing(c, {source: stone}), [stone])
 
 
 if __name__ == '__main__':

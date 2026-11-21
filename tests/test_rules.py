@@ -70,6 +70,7 @@ class LogicTests(unittest.TestCase):
         from oot_rando.game.remake_world import CHEST_RULE_EVENTS, rule_members
         self.assertEqual(sorted(set(CHEST_RULE_EVENTS.values())),
                          ['GC Hammer Rock Chest', 'GC Lower Ledge Chests', 'GC Maze Rocks', 'GC Silver Rock Chest',
+                          'HF Fairy Memory Chest',
                           'Kak Impas House Heart Piece', 'Kak Windmill Heart Piece', 'LLR Ruins Hookshot Chest'])
         self.logic.virtual = {'chest_6': rule_members({'id': 'GoronCity#3870071239709713434',
                                                        'ap': ['GC Maze Center Chest']}),
