@@ -386,9 +386,12 @@ def settings_from_patch(patch, skulltulas_always_present=False):
     from oot_rando.randomizer.randomizer_core import SKIP_OPTIONS, Settings
     from oot_rando.game.randomizer_categories import CATEGORIES
     check_patch(patch)
+    from oot_rando.logic import rando_options
+    options = dict(patch['options'])
+    options.setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
     seed = f'AP {patch.get("seed_name", "")} {patch.get("slot_name", "")}'.strip()[:256]
     return Settings(seed=seed, randomize_chests=False, open_forest=bool(patch['open_forest']),
-                    categories=dict.fromkeys(CATEGORIES, False), full=dict(patch['options']),
+                    categories=dict.fromkeys(CATEGORIES, False), full=options,
                     archipelago=patch, skulltulas_always_present=bool(skulltulas_always_present),
                     **dict.fromkeys(SKIP_OPTIONS, True)).validate()
 

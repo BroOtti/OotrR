@@ -107,12 +107,9 @@ OPTION_TIPS = {
                          'and the Song of Time. To be confirmed in game.',
     'door_of_time_requirement': 'Play the Song of Time with an ocarina at the door. Choose whether this also '
                                 'needs all three Spiritual Stones, only the Goron Ruby and Zora Sapphire, or '
-                                'no stones. Door of Time open overrides this choice. The stones for Zelda\'s '
-                                'escape are a separate setting. To be confirmed in game.',
-    'spiritual_stones': 'The stones Zelda\'s escape asks for to give the Ocarina of Time and the Song of Time. '
-                        'Door of Time requirements are separate. Require all: the Kokiri Emerald, the Goron Ruby and the '
-                        'Zora Sapphire. Vanilla: the Goron Ruby and the Zora Sapphire only, as in the original game '
-                        '(the game\'s own check, DoorOfTime_CheckStoneNum, only looks at those two).',
+                                'no stones. The same stones unlock Zelda\'s escape at the castle bridge. No stones '
+                                'makes the escape available immediately, without meeting Zelda first. '
+                                'Door of Time open overrides only the door. To be confirmed in game.',
     'zora_fountain': 'Ruto\'s Letter required: King Zora blocks the way to Zora\'s Fountain until he reads the '
                      'letter, as in the vanilla game. Always moved: he stands aside from the start and stays '
                      'there; the letter can no longer be delivered, so it never becomes a bottle. '
@@ -182,7 +179,7 @@ OPTION_TIPS = {
 # A visible option missing here is shown at the end, in a card named after its tab.
 SETTING_GROUPS = (
     ('Open world', 'Zones and quests open from the start.',
-     ['game:open_forest', 'open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'spiritual_stones', 'zora_fountain', 'gerudo_fortress',
+     ['game:open_forest', 'open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'zora_fountain', 'gerudo_fortress',
       'open_gerudo_valley_bridge', 'skip_child_zelda']),
     ('Logic and accessibility', '',
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
@@ -200,8 +197,9 @@ SETTING_GROUPS = (
     ('Enemy souls', '', ['shuffle_enemy_spawns']),
     ('Minigames', '', ['big_poe_count', 'chicken_count']),
 )
-# Kept in the settings files (older seeds, AP YAML) but never shown: no effect any more.
-HIDDEN_OPTIONS = ('progressive_order', 'progressive_strict', 'fast_chests')
+# Kept in settings files (older seeds, AP YAML), but never shown.
+# spiritual_stones remains readable for old seeds; the GUI uses the shared door choice.
+HIDDEN_OPTIONS = ('progressive_order', 'progressive_strict', 'fast_chests', 'spiritual_stones')
 GAME_OPTION_COPY = {'open_forest': 'Open the way from Kokiri Forest to Hyrule Field',
                     'skulltulas_always_present': 'Night-only gold skulltulas present day and night'}
 UNTESTED_WORDS = ('confirm', 'validated', 'pilot', 'experimental')
@@ -1203,6 +1201,8 @@ class Application:
             if widget:
                 def selected(event=None):
                     variable.set(option.values[labels.index(display.get())][0])
+                    if option.name == 'door_of_time_requirement':
+                        self.full_vars['spiritual_stones'].set('door')
                     describe()
                 widget.bind('<<ComboboxSelected>>', selected)
         self.full_vars[option.name] = variable
@@ -1219,8 +1219,11 @@ class Application:
         return self.full_vars[option.name].get()
 
     def full_values(self):
-        return {option.name: self.full_value(option) for option in rando_options.OPTIONS
-                if option.name in self.full_vars}
+        values = {option.name: self.full_value(option) for option in rando_options.OPTIONS
+                  if option.name in self.full_vars}
+        if 'spiritual_stones' in values:
+            values['spiritual_stones'] = 'door'
+        return values
 
     def apply_full(self, values, enable=None):
         values = rando_options.validate(values)

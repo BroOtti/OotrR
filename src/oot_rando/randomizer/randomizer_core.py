@@ -34,7 +34,7 @@ from oot_rando.game.resource_allocations import allocation, grow_resources, add_
 from oot_rando.formats.byml_writer import lift_actors, patch_strings
 from oot_rando.logic import rando_options
 
-GENERATOR_VERSION = '0.12.1'
+GENERATOR_VERSION = '0.12.2'  # v0.7.5: updated reward sources, progression and initial states
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
 # The amiibo menu: given by Kaepora's first field arrival, now never played
@@ -133,7 +133,9 @@ class Settings:
         if self.archipelago is not None:
             from oot_rando.archipelago.bridge import check_patch
             check_patch(self.archipelago)
-            if self.full is None or self.full != rando_options.validate(self.archipelago['options']):
+            patch_options = dict(self.archipelago['options'])
+            patch_options.setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
+            if self.full is None or self.full != rando_options.validate(patch_options):
                 raise ValueError('The full randomizer options must be those of the Archipelago patch.')
             if self.open_forest != self.archipelago['open_forest']:
                 raise ValueError('"Open the way" must match the Archipelago patch.')
@@ -186,6 +188,9 @@ class Settings:
             raise ValueError('Unknown settings or invalid format.')
         if 'seed' not in value:
             raise ValueError('The seed is required.')
+        if isinstance(value.get('full'), dict):
+            value['full'] = dict(value['full'])
+            value['full'].setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
         return cls(**value).validate()
 
 
@@ -573,7 +578,8 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             # Zones open from the start, kept open (patching/world_openings.py).
             from oot_rando.patching.world_openings import OPENINGS, apply_openings
             options = full.get('options') or {}
-            if any(options.get(option) == value for option, value, _ in OPENINGS):
+            if (any(options.get(option) == value for option, value, _ in OPENINGS)
+                    or rando_options.escape_requirement(options) == 'song'):
                 from oot_rando.patching.quest_guard import CHALLENGES
                 extra_raw[GAMEDATA], opened_flows, story['openings'] = apply_openings(
                     options, lambda path: extra_raw.get(path) or decompress(read(path), d),
@@ -634,7 +640,8 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             if castle_skip:
                 # Child Hyrule Castle skipped: the quests start where the castle leaves them.
                 extra_raw[opening], castle_events = child_castle_skip.add_start_steps(
-                    extra_raw[opening], child_castle_skip.start_step_params(lambda p: decompress(read(p), d)))
+                    extra_raw[opening], child_castle_skip.start_step_params(
+                        lambda p: decompress(read(p), d), door_ready=not stones))
                 story['child_castle_start'] = castle_events
             # Big Poes to bring back: the collector's reward threshold (patching/big_poes.py).
             from oot_rando.patching import big_poes
@@ -1050,6 +1057,15 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
     for resource, edits in sorted(event_changes.items()):
         report('Event: ' + resource.split('/')[-1])
         modified[resource] = patch_event_params(decompress(read(resource), dictionaries_), edits)
+    # Fire Arrows shuffled: the sun-shot cutscene binds the pickup now in their place.
+    from oot_rando.patching import fire_arrows
+    fire_actor = fire_arrows.placed_actor(plan['placements'])
+    if fire_actor:
+        flow = fire_arrows.CUTSCENE_FLOW
+        raw = modified.get(flow)
+        modified[flow] = fire_arrows.retarget_cutscene(
+            raw if raw is not None else decompress(read(flow), dictionaries_), fire_actor)
+        plan['fire_arrow_cutscene'] = {'flow': flow, 'actor': fire_actor}
     from oot_rando.patching.qol_patches import SARIA_GIFT_FLOW, saria_add_before_display
     if SARIA_GIFT_FLOW in event_changes:
         # Saria's gift is in the pouch before its get window (and ActionGuide) runs.

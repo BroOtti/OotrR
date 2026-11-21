@@ -137,8 +137,7 @@ NPC_GIFTS = (
 )
 # Never shuffled, whatever the options (documented exclusions).
 EXCLUDED_NPC_LOCATIONS = ('DMT Biggoron', 'Kak Anju as Adult', 'GC Medigoron', 'Wasteland Bombchu Salesman',
-                          'ZR Magic Bean Salesman', 'HC Malon Egg', 'HC Zeldas Letter', 'HF Ocarina of Time Item',
-                          'LH Sun')
+                          'ZR Magic Bean Salesman', 'HC Malon Egg', 'HC Zeldas Letter', 'HF Ocarina of Time Item')
 # Ruto's Letter: the bottle Link fishes out of Lake Hylia is a placed pickup of the
 # child Hyrule Field map (``Obj_Bottle_Letter``, its AP location below). It is a
 # story reward (``quest``): the generic get sequence (``Dm_SY_Get``) sets
@@ -146,6 +145,14 @@ EXCLUDED_NPC_LOCATIONS = ('DMT Biggoron', 'Kak Anju as Adult', 'GC Medigoron', '
 # letter, and a derived pickup keeps ``Item_Bottle_Letter`` as its pouch actor.
 LETTER_ACTOR = 'Obj_Bottle_Letter'
 LETTER_LOCATION = 'LH Underwater Item'
+# Fire Arrows (``LH Sun``): a placed pickup of the adult Hyrule Field map, on the
+# Lake Hylia island (``Obj_Arrow_Fire`` named ``Item``, its own saved Bool64bitKey).
+# Shooting the sun plays ``Dm_LakeHrl_0030``, which binds that actor by name
+# (``Obj_Arrow_Fire[Item]``): a shuffled item gets the cutscene retargeted
+# (patching/fire_arrows.py). Picking up Fire Arrows anywhere only completes the
+# remake's side quest (``SubEvent_GetFireArrow/GetFireArrow``: challenge + Navi).
+FIRE_ARROW_ACTOR = 'Obj_Arrow_Fire'
+FIRE_ARROW_LOCATION = 'LH Sun'
 # Cutscene rewards: (source, AP locations, guards, ((event file stem, event, vanilla actor), ...)).
 # Every site of one reward gets the same item: the visible "get" box and, when
 # the cutscene adds the item silently first (ocarinas), that pouch addition too.
@@ -282,6 +289,13 @@ def scan_map_sources(maps, instance_param=None, world_respawn=None):
                 add('quest', 'world', gid, folder, name, 'Rutos Letter',
                     {'resource': path, 'index': index, 'field': 'Gyaml', 'before': name}, ident)
                 entries[gid].update(kind='exact', ap=[LETTER_LOCATION])
+                if 'Presence' in actor:
+                    entries[gid]['reason'] = 'conditional_presence'
+            elif name == FIRE_ARROW_ACTOR:
+                gid = f'{folder}#firearrow#{ident}'
+                add('quest', 'world', gid, folder, name, 'Fire Arrows',
+                    {'resource': path, 'index': index, 'field': 'Gyaml', 'before': name}, ident)
+                entries[gid].update(kind='exact', ap=[FIRE_ARROW_LOCATION])
                 if 'Presence' in actor:
                     entries[gid]['reason'] = 'conditional_presence'
             elif name == 'Obj_Heart_Container':
@@ -570,13 +584,17 @@ def mark_underwater(nup, dictionaries, members, maps, extra):
     """Mark the world-form spots under water (:mod:`oot_rando.game.underwater`)."""
     from oot_rando.formats import byml_codec
     from oot_rando.formats.inspect_resources import decompress
-    from oot_rando.game.underwater import mark_entries
+    from oot_rando.game.underwater import drop_child_deep, mark_deep, mark_entries
     if UNDERWATER_INFO not in members:
         return 0
     rows = byml_codec.load(decompress(nup.read(members[UNDERWATER_INFO]), dictionaries))['root']
     boxes = {row['__RowId']: (row['ModelAabbMin'], row['ModelAabbMax']) for row in rows
              if 'WaterPlane' in row.get('__RowId', '') and 'ModelAabbMin' in row and 'ModelAabbMax' in row}
-    return mark_entries(maps, extra, boxes.get)
+    marked = mark_entries(maps, extra, boxes.get)
+    # Deep crates (Lake Hylia lab, Hyrule Field storms grotto): out of child reach.
+    mark_deep(maps, extra, boxes.get)
+    drop_child_deep(extra)
+    return marked
 
 
 def scan_world(nup, dictionaries, members, progress=None):

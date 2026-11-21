@@ -123,10 +123,6 @@
    "rule": "can_blast_or_smash",
    "why": "The remake does not let adult Link hop past the boulder at the river mouth: it must be blown up or smashed. The seed now removes the river mouth air walls for both ages (story_fixes.zora_river_wall_edits, zora_river_child_wall_edits); this rule stays until Link is seen passing over the fence in game, then AP's 'is_adult or has_explosives' can come back."
   },
-  "Market Back Alley -> Market Bombchu Shop": {
-   "rule": "at_night and 'Dodongos Cavern Clear'",
-   "why": "The Bombchu Shop only opens once King Dodongo is beaten (prudence until checked in game)."
-  },
   "Ganons Castle Grounds -> Ganons Castle Lobby": {
    "rule": "(can_build_rainbow_bridge or (bridge == 'vanilla' and Shadow_Medallion and Spirit_Medallion)) and at_dampe_time",
    "why": "The rainbow bridge scene follows the Shadow and Spirit Medallions held (story_fixes.bridge_on_medallions, 21/11): Zelda's revelation (Light Arrows) is no longer needed first."

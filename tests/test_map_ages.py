@@ -42,11 +42,14 @@ class MapAgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.data = World()
         cls.c = cls.prepared()
-        cls.vanilla = cls.prepared(spiritual_stones='vanilla')
+        cls.vanilla = cls.prepared(door_of_time_requirement='vanilla')
 
     @classmethod
     def prepared(cls, **options):
-        options = dict(rando_options.defaults(), shuffle_rocks=True, **options)
+        # These scenarios explicitly require stones; the new no-stone default
+        # permits the escape immediately and would legitimately unlock adulthood.
+        options = dict(rando_options.defaults(), shuffle_rocks=True,
+                       **dict({'door_of_time_requirement': 'all'}, **options))
         return prepare(cls.data, options, {}, [], 'map-ages', True, extra=map_sources())
 
     def collected(self, counts, time_travel=True, c=None):
