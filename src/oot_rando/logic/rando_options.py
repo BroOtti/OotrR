@@ -67,7 +67,7 @@ GENERIC_KEYS = 'Remake keys are generic (credited to the current dungeon): impos
 STARTABLE_ITEMS = (
     'Kokiri Sword', 'Biggoron Sword', 'Deku Shield', 'Hylian Shield', 'Mirror Shield',
     'Slingshot', 'Bow', 'Boomerang', 'Progressive Hookshot', 'Megaton Hammer', 'Lens of Truth',
-    'Bomb Bag', 'Bombchus (10)', 'Ice Arrows', 'Light Arrows', 'Dins Fire', 'Farores Wind', 'Nayrus Love',
+    'Bomb Bag', 'Bombchus (10)', 'Fire Arrows', 'Ice Arrows', 'Light Arrows', 'Dins Fire', 'Farores Wind', 'Nayrus Love',
     'Iron Boots', 'Hover Boots', 'Progressive Strength Upgrade', 'Progressive Scale', 'Progressive Wallet',
     'Deku Nut Capacity', 'Deku Stick Capacity', 'Magic Meter', 'Double Defense', 'Ocarina', 'Bottle',
     'Bottle with Milk', 'Zeldas Letter', 'Stone of Agony', 'Heart Container', 'Piece of Heart',
@@ -118,10 +118,13 @@ OPTIONS = [
             ('song', 'Ocarina + Song of Time', OK)), 'song',
            'Play the Song of Time with an ocarina at the door. Three stones also requires the Kokiri '
            'Emerald, Goron Ruby and Zora Sapphire; Ruby and Sapphire only requires the latter two. '
-           'Door of Time open overrides this requirement. Independent of the stones for Zelda\'s escape. '
+           'The same stone choice controls Zelda\'s escape at the castle bridge. No stones makes the escape '
+           'available immediately, without meeting Zelda first. Door of Time open overrides only the door. '
            'To be confirmed in game.', experimental=('all', 'vanilla', 'song')),
     Option('spiritual_stones', 'World', 'Require Spiritual Stones',
-           (('all', 'Require all', OK), ('vanilla', 'Vanilla', OK)), 'all',
+           (('door', 'Follow Door of Time requirements', OK),
+            ('all', 'Require all (legacy)', OK), ('vanilla', 'Vanilla (legacy)', OK)), 'door',
+           'Compatibility setting for older seeds. New seeds follow Door of Time requirements. '
            'Which stones Zelda\'s escape asks for to give the Ocarina of Time and the Song of Time. '
            'Require all: the Kokiri Emerald, the Goron Ruby and the Zora Sapphire. Vanilla: the Goron Ruby '
            'and the Zora Sapphire only, as in the original game. Door of Time requirements are separate.'),
@@ -140,8 +143,8 @@ OPTIONS = [
            'Gerudo Membership Card. To be confirmed in game.', experimental=('fast',)),
     Option('open_gerudo_valley_bridge', 'World', 'Gerudo Valley bridge repaired',
            ((False, OK), (True, OK)), False,
-           'The adult crosses the Gerudo Valley bridge on foot from the start, as after meeting the head '
-           'carpenter on the fortress side. The carpenters stay in their cells and the last rescue still '
+           'The adult crosses the repaired Gerudo Valley bridge on foot from the start. '
+           'The carpenters stay in their cells and the last rescue still '
            'brings the Gerudo Membership Card. To be confirmed in game.', kind='bool', experimental=(True,)),
     Option('starting_age', 'World', 'Starting age',
            (('child', 'Child', OK), ('adult', 'Adult', NO_ADAPTER), ('random', 'Random', NO_ADAPTER)), 'child'),
@@ -247,7 +250,7 @@ OPTIONS = [
            kind='bool', experimental=(True,)),
     Option('shuffle_quest_rewards', 'Items', 'Quest rewards',
            ((False, OK), (True, OK)), False,
-           'Fairy Ocarina (Saria), Ocarina of Time, Zelda\'s Letter, Light Arrows, Biggoron Sword, Ruto\'s Letter. '
+           'Fairy Ocarina (Saria), Ocarina of Time, Zelda\'s Letter, Light Arrows, Fire Arrows (Lake Hylia sun), Biggoron Sword, Ruto\'s Letter. '
            'Zelda\'s Letter stays Zelda\'s gift while the child trade quest is vanilla: it takes the '
            'Weird Egg\'s slot, and Talon could no longer be woken. '
            'Vanilla cutscene kept, only the item given changes. To be validated in game. Out of scope: trade items, songs.', kind='bool', experimental=(True,)),
@@ -364,6 +367,12 @@ def recorded(values):
 def stored_value(values, name):
     """Option ``name`` in stored settings (``recorded``, so it may be missing)."""
     return values.get(name, UNRECORDED.get(name, BY_NAME[name].default))
+
+
+def escape_requirement(values):
+    """Shared stone choice; explicit older escape settings retain their original rules."""
+    value = stored_value(values, 'spiritual_stones')
+    return stored_value(values, 'door_of_time_requirement') if value == 'door' else value
 
 
 def defaults():

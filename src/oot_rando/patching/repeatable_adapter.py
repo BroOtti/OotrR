@@ -16,6 +16,10 @@ way: each gets its own actor whose shop AI writes the check flag when the item i
 bought, and reads that flag as its "sold out" state: the item at rest then
 deletes itself. The map is unchanged (no Presence: some shelves, like the Kokiri
 shop's, already have one).
+
+The shuffled Lake Hylia letter uses the same saved check because its native
+placement has no persistent hash key. This placed reward always runs its get
+event, including for minor items, and is recorded only after the pouch push.
 """
 import copy
 import hashlib
@@ -477,7 +481,7 @@ def instrument_drop_ai(raw, flag, filename, event_raw, mark_on_spawn=None, resto
 
 
 def prepare_repeatables(plan, maps):
-    """Rename selected repeatable world rewards; return generation descriptors.
+    """Give repeatable rewards and the shuffled letter their own saved checks.
 
     Must run BEFORE the normal placement map patches are composed. Original
     placements keep their AP item/spoiler actor; only the physical pickup changes.
@@ -487,7 +491,10 @@ def prepare_repeatables(plan, maps):
         previous = placement['after']
         # A shelf holding a shuffled item (not a native shop refill) is bought once.
         shop = placement.get('source') == 'shop' and previous.startswith(SHOP_PREFIX)
-        if placement.get('source') not in REPEATABLE and not shop:
+        # The letter's native actor always respawns, and its placement hash has
+        # no saved Bool64bitKey. Its replacement needs an independent check flag.
+        placed = placement.get('source') == 'quest' and placement.get('before') == 'Obj_Bottle_Letter'
+        if placement.get('source') not in REPEATABLE and not shop and not placed:
             continue
         canonical = canonical_of(previous) if is_derived(previous) else WORLD_CANONICAL.get(previous)
         if canonical is None:
@@ -512,7 +519,8 @@ def prepare_repeatables(plan, maps):
             variants.append({'resource': resource, 'index': index, 'native_once': native_once,
                              'source': original.get('Gyaml'), 'drop_actor': dynamic.get('Drop__DropActor'),
                              'drop_table': dynamic.get('Drop__DropTable')})
-        record = {'id': placement['id'], 'actor': actor, 'canonical': canonical, 'kind': 'shop' if shop else 'pickup',
+        record = {'id': placement['id'], 'actor': actor, 'canonical': canonical,
+                  'kind': 'shop' if shop else ('placed' if placed else 'pickup'),
                   'underwater': bool(placement.get('underwater')) and not shop,
                   'original_reward_actor': previous, 'flag': flag, 'flag_hash': murmur3(flag),
                   'event_filename': 'RandoOnce_' + key + '.event.root', 'variants': variants}
@@ -633,6 +641,11 @@ def build_repeatable_packs(records, read_pack, read_raw, tables):
         pouch_path = components['PouchContentRef'][1:]
         pouch = byml_codec.load(files[pouch_path])
         pouch['root'].update(pickup_pouch_settings(record['canonical']))
+        if record.get('kind') == 'placed':
+            # Like the original bottle, this check always plays its get event,
+            # even for a rupee. Record collection after the pouch push, never on
+            # spawning a reward the player has not reached underwater yet.
+            pouch['root'].update(PlayGetEventManyTimes=True, GetType=byml_codec.U32(LARGE_GET_TYPE))
         # The PouchActor remains the canonical reward: no unique inventory item
         # or duplicate bundle is introduced just to track a check.
         files[pouch_path] = byml_codec.dump(pouch)
@@ -648,7 +661,7 @@ def build_repeatable_packs(records, read_pack, read_raw, tables):
         # A minor reward's check is collected when it drops while the pouch can take it
         # (its short pick-up runs no get event); a key reward's once its get event put
         # it in the pouch.
-        minor = is_minor_reward(record['canonical'])
+        minor = is_minor_reward(record['canonical']) and record.get('kind') != 'placed'
         files[event_member] = instrument_pickup_event(event, record['flag'], event_name, record['canonical'], also,
                                                       skip_if_collected=not minor)
         # Once the check is collected, a respawned source drops what it drops in the

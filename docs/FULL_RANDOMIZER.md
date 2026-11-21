@@ -124,6 +124,27 @@ it. In `Minigame_CatchCucco`, `Event3` (her "left to find" count, N minus the pe
 `Talk_21_1`, `Talk_40` of `Npc_Hylia_049_Child.msbt`) name N, as a digit, in every
 language. 0 (a reward without a cucco) is not supported. **Not validated in game.**
 
+## Multi-level mini-games (`minigame_rewards.py`)
+
+The first success hands over the prizes of every level (they are separate checks), and
+the saved progress jumps to the end so that later wins only pay the repeat reward.
+Always on with the complete randomizer; registered with the story fixes, so `verify`
+replays them. Events are found by name and the gifts are followed through the collection
+markers inserted after them.
+
+* **Bombchu Bowling** (`MiniGame_BombchuBowling`): `GetPrise` chains the Bombchus
+  (`Event309`), the bomb bag (`Event76` → `Event304`/`Event306`) and the heart piece
+  (`Event143`); the clear count sets `ClearSecondTime` and `ClearThirdTime` with the first.
+* **Ocarina memory game** (`Npc_SkullKid_Child_02`): the first session chains the blue
+  rupee (`Event22`), the red rupee (`Event23`) and the heart piece (`Event64` → `Event24`),
+  and sets the next session's grade to 8 (`Event11`), the last one.
+* **Horseback archery** (`Minigame_HorsebackArchery`): the 750 points heart piece
+  (`Event117`) continues with the quiver (`Event110`, as 1400 points already did).
+* **Slingshot and bow ranges** (`MiniGame_HitTarget`): nothing to merge: the bag / quiver is
+  given once (`Get_BulletBag`, `Get_Quiver`), the hard mode only pays rupees.
+
+**Not validated in game.**
+
 ## Item forms and derived actors (`item_forms.py`)
 
 The remake gives an item through three kinds of actors: `Item_*` (chest, event),
@@ -283,6 +304,15 @@ Mido's house: the 4 grouped chests are matched to Mido's 4 AP chests.
 
 ### Door of Time requirements (`door_of_time_requirement`)
 
+This single GUI row also controls the stones needed for Zelda's escape at the
+castle bridge: `all` asks for three stones, `vanilla` for Ruby and Sapphire, and
+`song` asks for no stones. In `song`, a new game starts with the escape ready
+(`DoorOfTime` Step03): it can be watched on the first bridge visit without meeting
+Zelda, owning an ocarina, or knowing the Song of Time. Opening the temple door still
+needs an ocarina and the song unless **Door of Time open** is enabled. Later castle
+visits cannot reset the escape's quest progress. This also works with the child
+Zelda skip. Existing saves need a new game to receive the initial quest state.
+
 Play the Song of Time with an ocarina in front of the door. The *Open world* card
 adds a separate choice of stones required at that moment:
 
@@ -325,8 +355,11 @@ can run regardless of the current quest step.
 
 The game's own check (`DoorOfTime/DoorOfTime_CheckStoneNum`) reads only the Fire and
 Water stone quests (`Get_StoneOfFire`, `Get_StoneOfWater`), never the Kokiri Emerald.
-The option, in the *Open world* card, picks what Zelda's escape asks for, and so what
-gates the Ocarina of Time (`HF Ocarina of Time Item`) and the Song of Time. The door's
+The setting is hidden in the GUI and retained for compatibility. New settings use
+`door`, following the visible Door of Time requirements row, including its no-stone
+choice. Explicit older `all`/`vanilla` settings and old seeds without this field
+retain their previous rules when loaded directly. Editing or exporting through the
+GUI uses the single visible row. The legacy setting picks what gates the Ocarina of Time (`HF Ocarina of Time Item`) and the Song of Time. The door's
 own stone requirement is set separately:
 
 | Value | Stones | Logic and patch |

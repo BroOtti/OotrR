@@ -40,6 +40,32 @@ class DoorRequirementsTests(unittest.TestCase):
                 self.assertEqual(bool(rule(state, state.counts, 'child')), expected,
                                  (requirement, opened, escape, counts))
 
+    def test_shared_escape_stones_truth_table(self):
+        from oot_rando.patching.story_fixes import escape_stones
+        items = ('Kokiri Emerald', 'Goron Ruby', 'Zora Sapphire', 'Met Zelda')
+        locations = ('HF Ocarina of Time Item', 'Song from Ocarina of Time')
+        for requirement in ('song', 'vanilla', 'all'):
+            options = rando_options.validate({NAME: requirement})
+            self.assertEqual(options['spiritual_stones'], 'door')
+            self.assertEqual(len(escape_stones(options)), {'song': 0, 'vanilla': 2, 'all': 3}[requirement])
+            logic = Logic(self.world, ap_settings(options, True))
+            rules = dict(logic.location_rules)
+            for mask in range(1 << len(items)):
+                counts = {item: 1 for bit, item in enumerate(items) if mask >> bit & 1}
+                stones = (requirement == 'song' or
+                          all(item in counts for item in ('Goron Ruby', 'Zora Sapphire')) and
+                          (requirement != 'all' or 'Kokiri Emerald' in counts))
+                for location in locations:
+                    expected = stones and (requirement == 'song' or 'Met Zelda' in counts or
+                                            location == 'HF Ocarina of Time Item' and requirement == 'all')
+                    for age in ('child', 'adult'):
+                        state = logic.new_state(counts)
+                        actual = any(rule(state, state.counts, age) for _, rule in rules[location])
+                        self.assertEqual(bool(actual), bool(expected and age == 'child'),
+                                         (requirement, location, age, counts))
+            rebuilt = Logic(self.world, json.loads(json.dumps(logic.settings)))
+            self.assertEqual(rebuilt.settings, logic.settings)
+
     def test_saved_tracker_logic_retains_the_choice(self):
         for requirement in ('all', 'vanilla', 'song'):
             options = rando_options.validate({NAME: requirement})
@@ -51,7 +77,8 @@ class DoorRequirementsTests(unittest.TestCase):
         option = rando_options.BY_NAME[NAME]
         self.assertEqual((option.allowed(), option.default), (('all', 'vanilla', 'song'), 'song'))
         self.assertIn(NAME, next(names for title, _, names in gui.SETTING_GROUPS if title == 'Open world'))
-        self.assertIn('separate', gui.option_tip(option, option.label, option.help))
+        self.assertIn("same stones unlock Zelda's escape",
+                      gui.option_tip(option, option.label, option.help))
         spec = next(spec for spec in ap_option_specs() if spec['name'] == NAME)
         self.assertEqual((spec['values'], spec['default']), (['all', 'vanilla', 'song'], 'song'))
         for value in option.allowed():

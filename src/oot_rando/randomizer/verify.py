@@ -181,6 +181,12 @@ def verify(nup_path, seed_dir):
                 raise ValueError('Missing Archipelago reception flag: ' + record['key'])
         report['ap_reception'] = len(expected)
     from oot_rando.patching import story_fixes
+    openings = (manifest.get('skips', {}).get('story_fixes') or {}).get('openings') or {}
+    from oot_rando.patching import game_defaults
+    for option, details in openings.items():
+        defaults = details.get('defaults') or {}
+        if game_defaults.read_defaults(out(GAMEDATA), defaults) != defaults:
+            raise ValueError('World opening defaults differ from the spoiler: ' + option)
     for key, module, fix in (
             ('light_arrows_medallions', story_fixes.LIGHT_ARROWS_MODULE, story_fixes.light_arrows_on_medallions),
             ('prelude_medallion', story_fixes.PRELUDE_MODULE, story_fixes.prelude_on_forest_medallion)):
@@ -211,6 +217,9 @@ def verify(nup_path, seed_dir):
             raise ValueError('Unexpected scene conditions in the game data.')
         opened = bool(((manifest.get('settings') or {}).get('full') or {}).get('open_door_of_time'))
         for module, key, fix in story_fixes.scene_module_fixes():
+            # Earlier seeds did not patch these shop and child gate modules.
+            if key in ('kakariko_gate_closed', 'kakariko_gate_open', 'bombchu_shop_open') and key not in manifest['skips']['story_fixes']:
+                continue
             expected, _ = fix(nup.read(members[module]))
             if module == story_fixes.DOOR_MODULE and opened:
                 from oot_rando.patching.world_openings import door_always_open
@@ -364,6 +373,24 @@ def verify(nup_path, seed_dir):
                 original = story_fixes.first_arrival_forward(
                     path, original, challenge_steps(decompress(nup.read(members[CHALLENGES]), d)))[0]
                 report['story_fixes'] = report.get('story_fixes', 0) + 1
+            # Opening floors are applied after the general story repairs by the
+            # generator. Rebuild them too before comparing the event snapshot.
+            from oot_rando.patching import quest_guard, world_openings
+            for option, quest, floor, flows in (
+                    ('zora_fountain', world_openings.ZORA_QUEST, world_openings.ZORA_FLOOR,
+                     world_openings.ZORA_FLOWS),
+                    ('open_kakariko', world_openings.KAKARIKO_QUEST, world_openings.KAKARIKO_FLOOR,
+                     world_openings.KAKARIKO_FLOWS),
+                    ('zelda_escape', world_openings.ESCAPE_QUEST, world_openings.ESCAPE_FLOOR,
+                     world_openings.ESCAPE_FLOWS)):
+                if option in openings and path in flows:
+                    steps = quest_guard.challenge_steps(decompress(nup.read(members[quest_guard.CHALLENGES]), d))
+                    original, guarded = quest_guard.guard_regressions(original, quest, steps, floor,
+                                                                       gamedata_raw=out(GAMEDATA))
+                    expected = openings[option]['guarded'].get(path)
+                    if json.loads(json.dumps(guarded['guarded'])) != expected:
+                        raise ValueError('World opening guards differ from the spoiler: ' + path)
+                    report['story_fixes'] = report.get('story_fixes', 0) + 1
             gifts = skips.get('gift_get', {})
             if path in gifts:
                 # Cutscene whose own add is bypassed: never reached any more.
@@ -467,7 +494,8 @@ def verify(nup_path, seed_dir):
                 if child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
                     values = dict(values, **child_castle_skip.START_VALUES)
                     # The castle quests replayed at the start (native requests, copied).
-                    steps = child_castle_skip.start_step_params(lambda p: decompress(nup.read(members[p]), d))
+                    steps = child_castle_skip.start_step_params(
+                        lambda p: decompress(nup.read(members[p]), d), door_ready=not stones)
                     if [name for name, _ in steps] != (skips.get('story_fixes') or {}).get('child_castle_start'):
                         raise ValueError('Child castle start requests differ from the settings.')
                     for name, params in steps:

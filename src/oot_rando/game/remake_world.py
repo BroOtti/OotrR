@@ -131,7 +131,7 @@ ACTOR_ITEMS = {
     'Item_Longshot': 'Progressive Hookshot', 'Item_Hammer': 'Megaton Hammer',
     'Item_HeavyBoot': 'Iron Boots', 'Item_HoverBoot': 'Hover Boots',
     'Item_Gauntlet_Silver': 'Progressive Strength Upgrade', 'Item_Gauntlet_Gold': 'Progressive Strength Upgrade',
-    'Item_GlassTruth': 'Lens of Truth', 'Item_Arrow_Ice': 'Ice Arrows', 'Item_Sword_Kokiri': 'Kokiri Sword',
+    'Item_GlassTruth': 'Lens of Truth', 'Item_Arrow_Ice': 'Ice Arrows', 'Item_Arrow_Fire': 'Fire Arrows', 'Item_Sword_Kokiri': 'Kokiri Sword',
     'Item_BombBag_Small': 'Bomb Bag', 'Obj_Heart_Piece': 'Piece of Heart',
     'Item_BombBundle_Small': 'Bombs (5)', 'Item_BombchuBundle_Small': 'Bombchus (5)',
     'Item_BombchuBundle_Large': 'Bombchus (10)', 'Item_Token_Gold': 'Gold Skulltula Token',
@@ -156,6 +156,7 @@ ACTOR_ITEMS = {
     'Item_Ocarina_Fairy': 'Ocarina', 'Item_Ocarina_Time': 'Ocarina',
     'Item_ZeldaLetter': 'Zeldas Letter', 'Item_Arrow_Light': 'Light Arrows',
     'Item_Bottle_Letter': 'Rutos Letter',
+    'Obj_Armor_Goron': 'Goron Tunic', 'Obj_Armor_Zora': 'Zora Tunic',
     'Item_Sword_Biggoron': 'Biggoron Sword',
     'Weapon_Sword_Master': 'Master Sword', 'Item_Rando_MasterSword': 'Master Sword',
     'Item_Token_Gerudo': 'Gerudo Membership Card',
@@ -505,6 +506,8 @@ KNOWN_CHEST_GROUPS.update({
 # the bombs-only rule of the center and right chests and held the Kokiri Emerald in
 # logic (Discord 16/11). The matching (pool, tracker, names) is unchanged.
 CHEST_RULE_EVENTS = {
+    # Read the fairy's memory as adult, then return as child to open its chest.
+    'HyruleField#2967378296224661060': 'HF Fairy Memory Chest',  # Obj_TBox_A_01_memo11
     # Kakariko's two freestanding heart pieces, told apart by position (17/11).
     'KakarikoVillage#free#13389209437182306002': 'Kak Windmill Heart Piece',     # Kak_heart_piece_2
     'KakarikoVillage#free#17926402522258180222': 'Kak Impas House Heart Piece',  # Kak_heart_piece_1
