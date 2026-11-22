@@ -85,10 +85,21 @@ class SaveDiscoveryTests(unittest.TestCase):
             save = data / 'longshot' / 'save' / '5a3c9e1f0b7d24680000000000000001' / 'slot_00' / 'progress.sav'
             save.parent.mkdir(parents=True)
             save.write_bytes(b'x')
-            with mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(data)}), \
-                    mock.patch.object(auto_tracker.os, 'name', 'posix'):
+            # Not os.name: patching it makes Path() build a PosixPath, which Windows refuses.
+            with mock.patch.object(auto_tracker, 'linux_data_home', return_value=data):
                 self.assertEqual(newest_save(game / 'mods'), save)
                 self.assertNotIn(save, find_save_slots(title='0400486024DEC000', mods=Path(temporary) / 'emu'))
+
+    @unittest.skipIf(os.name == 'nt', 'no XDG data folder on Windows')
+    def test_linux_data_home(self):
+        with mock.patch.dict(os.environ, {'XDG_DATA_HOME': '/xdg/data'}):
+            self.assertEqual(auto_tracker.linux_data_home(), Path('/xdg/data'))
+        with mock.patch.dict(os.environ, {'XDG_DATA_HOME': ''}):
+            self.assertEqual(auto_tracker.linux_data_home(), Path.home() / '.local' / 'share')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows')
+    def test_no_linux_data_home_on_windows(self):
+        self.assertIsNone(auto_tracker.linux_data_home())
 
     def test_files_outside_slots_are_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
