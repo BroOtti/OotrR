@@ -17,11 +17,11 @@ class WorldTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World()
 
-    def test_the_fingerprint_is_that_of_upstream_0_7_3(self):
-        # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it: it hashes the
-        # logic files, so the options that vary the rules (spiritual_stones) do it in Python, not in them.
+    def test_the_fingerprint_is_that_of_release_0_7_5(self):
+        # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it.
+        # v0.7.5 updates adult access rules and removes the Bombchu Shop dungeon gate.
         # Change this value on purpose only, when the logic files change.
-        self.assertEqual(self.world.fingerprint(), '57d7d0b7a9deeed25be9c273b7a03ba4bcc4fdca47361050a6f6242901604c2c')
+        self.assertEqual(self.world.fingerprint(), '82d80053ccc79ff04e5536dcb8dbc5f4900ff7fa4473f5c67ae0f2a6297a50e8')
 
     def test_tables_and_regions(self):
         self.assertEqual(len(self.world.location_table), 1707)

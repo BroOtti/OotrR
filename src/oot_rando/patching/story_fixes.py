@@ -29,6 +29,9 @@ edit of one resource, checked by re-reading it (Discord reports of 15/11):
 * **Bombchu Bowling.** The alley opened only after Dodongo's Cavern
   (``MiniGame_BombchuBowling/AfterWakeUp`` Event137, ``Get_StoneOfFire_IsCompleted_Exp``):
   it is open from the start, as the logic expects.
+* **Bombchu Shop.** Same lock on the shop door (``Market_Child_Prefab_0c76`` read
+  ``Get_StoneOfFire_IsCompleted_Exp``, :func:`bombchu_shop_open_from_start`): it now
+  only asks for the night, from the start.
 * **Great Fairies.** Zelda's Lullaby on a fountain's Triforce mark
   (``TriForcePoint/Sub_PlayOcarinaSequence_FairyFountain``) only calls the fairy of
   Din's Fire (Death Mountain Trail) at once; the five others stay away while
@@ -517,9 +520,9 @@ def lake_tree_wall_edits(root):
 # (:func:`zelda_escape_on_talk`).
 DOOR_FLOW = 'Event/EventFlow/DoorOfTime.bfevfl.zs'
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
-# The ``spiritual_stones`` option's values: the stones the escape asks for.
+# Stone choices shared by the door and escape (older seeds retain separate settings).
 STONE_SETS = {'all': ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water'),
-              'vanilla': ('Item_Stone_Fire', 'Item_Stone_Water')}   # the native check's two quests
+              'vanilla': ('Item_Stone_Fire', 'Item_Stone_Water'), 'song': ()}   # the native check's two quests
 STONE_FLAG_PREFIX = 'IsGet.'   # saved when the stone is obtained, however it is given
 DOOR_STARTED = 'DoorOfTime_IsAfter_Step01_Exp'
 DOOR_BEFORE_ESCAPE = 'DoorOfTime_IsAfter_Step2_2_Exp'
@@ -533,7 +536,7 @@ DOOR_STEP03_PARAMS = {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengePro
 def escape_stones(full):
     """The stones Zelda's escape asks for, from the (stored) full randomizer options."""
     from oot_rando.logic import rando_options
-    return STONE_SETS[rando_options.stored_value(full, 'spiritual_stones')]
+    return STONE_SETS[rando_options.escape_requirement(full)]
 
 
 def _stone_check(flow, prefix, stones, following, done=...):
@@ -1359,6 +1362,8 @@ SAGE_OF_WATER_FLOW = 'Event/EventFlow/SageOfWater.bfevfl.zs'
 SAGE_OF_WATER_STEPS = ('Ready', 'Step00', 'Step01', 'Step03', 'Step04', 'Step05', 'Step06', 'Step07',
                        'Step07_00', 'Step07_1', 'Step07_1_Safety', 'Step07_2', 'Step08')
 SERENADE_STEPS = ('Step04', 'Step05')
+BOMBCHU_SHOP_MODULE = 'Logic/Market_Child_Prefab_0c76.logic.module.ainb'
+BOMBCHU_SHOP_QUEST = 'Get_StoneOfFire_IsCompleted_Exp'
 DOOR_MODULE = 'Logic/Market_Common_f252.logic.module.ainb'
 DOOR_OPENED = 'Market_Child_TimeTempleDoor_Opened'
 # The altar's ReplaceEventParam rejects the ocarina BEFORE DoorOfTime_OpenDoor
@@ -1554,6 +1559,32 @@ def door_opens_on_saved_flag(raw):
     return _module_edit(raw, check, edit), {'module': DOOR_MODULE, 'flag': DOOR_OPENED}
 
 
+def bombchu_shop_open_from_start(raw):
+    """``Market_Child_Prefab_0c76``: the Bombchu Shop door no longer asks for the Fire Stone quest.
+
+    Node 1 reads ``Get_StoneOfFire_IsCompleted_Exp``; node 0 (night: opens the door) and node 4
+    (day or night: the door's prompt) AND it. Both now read only their time-of-day input
+    (the shop stays a night shop, as the logic expects). Returns (bytes, report)."""
+    def sources(node):
+        return [(s['Node Index'], s['Output Index']) for s in node['Parameters']['Inputs']['Bool'][0]['Sources']]
+
+    def check(nodes):
+        if (len(nodes) < 6 or nodes[1].get('Name') != 'HoldGameDataGetBoolExpSimple'
+                or nodes[1]['Parameters']['Inputs']['String'][0]['Default Value'] != BOMBCHU_SHOP_QUEST
+                or nodes[0].get('Name') != 'OperateAND' or sources(nodes[0]) != [(1, 0), (2, 1)]
+                or nodes[4].get('Name') != 'OperateAND' or sources(nodes[4]) != [(1, 0), (5, 1)]
+                or nodes[3].get('Flags') != ['Is Query', 'Is Module']):
+            raise ValueError('Unexpected Bombchu Shop door module (already patched?).')
+
+    def edit(nodes):
+        for node, queries in ((0, [2, 2]), (4, [5, 5])):
+            gate = nodes[node]
+            time = gate['Parameters']['Inputs']['Bool'][0]['Sources'][1]
+            gate['Parameters']['Inputs']['Bool'][0]['Sources'] = [dict(time), dict(time)]
+            gate['Queries'] = queries
+    return _module_edit(raw, check, edit), {'module': BOMBCHU_SHOP_MODULE, 'dropped': BOMBCHU_SHOP_QUEST}
+
+
 def door_song_before_escape(raw):
     """``DoorOfTime``: the Song of Time opens the door before the escape (see above).
 
@@ -1624,7 +1655,14 @@ def revelation_keeps_ganon_quest(raw):
 def scene_module_fixes():
     """((logic module path, report key, fix(raw) -> (bytes, report)), ...) of these fixes."""
     from oot_rando.patching.world_openings import PEDESTAL_MODULE as CHILD_PEDESTAL, pedestal_before_sages
+    from oot_rando.patching.world_openings import (KAKARIKO_CLOSED_MODULE, KAKARIKO_OPEN_MODULE,
+                                                  kakariko_gate_on_letter)
     return ((WATER_GATE_MODULE, 'water_gate', water_gate_for_adult),
+            (KAKARIKO_CLOSED_MODULE, 'kakariko_gate_closed',
+             lambda raw: kakariko_gate_on_letter(raw, False)),
+            (KAKARIKO_OPEN_MODULE, 'kakariko_gate_open',
+             lambda raw: kakariko_gate_on_letter(raw, True)),
+            (BOMBCHU_SHOP_MODULE, 'bombchu_shop_open', bombchu_shop_open_from_start),
             (DOOR_MODULE, 'door_saved_flag', door_opens_on_saved_flag),
             (CHILD_PEDESTAL, 'first_pull_any_door_step',
              lambda raw: (pedestal_before_sages(raw), {'module': CHILD_PEDESTAL})),
@@ -1633,8 +1671,10 @@ def scene_module_fixes():
 
 def flow_fixes(stones):
     """``(flow, report key, fix)`` of every story fix; the escape checks ask for ``stones``."""
+    from oot_rando.patching.minigame_rewards import FIXES as MINIGAME_FIXES
     return (
         *OWL_FLOW_FIXES,
+        *MINIGAME_FIXES,
         ('Event/EventFlow/AllSage.bfevfl.zs', 'prelude_quest_forward', prelude_keeps_later_sage_progress),
         (FIRE_STONE_FLOW, 'darunia_gift', darunia_gift_after_dungeon),
         (DARUNIA_GIFT_FLOW, 'fire_quest_forward', keep_fire_quest_forward),

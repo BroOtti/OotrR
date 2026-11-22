@@ -89,14 +89,14 @@ class EscapeStoneUnits(unittest.TestCase):
     def test_the_option_picks_the_stones_zelda_asks_for(self):
         self.assertEqual(s.STONE_SETS['all'], ('Item_Stone_Forest', 'Item_Stone_Fire', 'Item_Stone_Water'))
         self.assertEqual(s.STONE_SETS['vanilla'], ('Item_Stone_Fire', 'Item_Stone_Water'))   # the native check's
-        self.assertEqual(set(s.STONE_SETS), {v for v, _, _ in rando_options.BY_NAME['spiritual_stones'].values})
+        self.assertEqual(set(s.STONE_SETS), set(rando_options.BY_NAME['door_of_time_requirement'].allowed()))
         for value, stones in s.STONE_SETS.items():
-            self.assertEqual(s.escape_stones({'spiritual_stones': value}), stones)
+            self.assertEqual(s.escape_stones({'spiritual_stones': 'door', 'door_of_time_requirement': value}), stones)
 
     def test_stored_options_without_the_option_ask_for_every_stone(self):
         # Seeds made before the option (upstream's) asked for the three stones.
         self.assertEqual(s.escape_stones({}), s.STONE_SETS['all'])
-        self.assertEqual(s.escape_stones(rando_options.recorded(rando_options.defaults())), s.STONE_SETS['all'])
+        self.assertEqual(s.escape_stones(rando_options.recorded(rando_options.defaults())), ())
 
     def test_the_story_fixes_carry_the_chosen_stones(self):
         for value, stones in s.STONE_SETS.items():
@@ -756,6 +756,21 @@ class GameFlows(unittest.TestCase):
         self.assertEqual(unflagged_links(nodes), [])
         with self.assertRaises(ValueError):
             s.water_gate_for_adult(raw)
+
+    def test_bombchu_shop_ignores_the_fire_stone_quest(self):
+        from test_world_openings import unflagged_links
+        raw, _ = s.bombchu_shop_open_from_start(self.module(s.BOMBCHU_SHOP_MODULE))
+        nodes = self.nodes(raw)
+        door = {(n['Node Index'], n['Output Index']) for n in nodes[3]['Parameters']['Inputs']['Bool']
+                if 'Node Index' in n and n['Name'] in ('EnableDo', 'EnableOpen')}
+        self.assertEqual(door, {(4, 1), (0, 1)})
+        for node, time in ((0, (2, 1)), (4, (5, 1))):
+            sources = [(x['Node Index'], x['Output Index']) for x in nodes[node]['Parameters']['Inputs']['Bool'][0]['Sources']]
+            self.assertEqual(sources, [time, time])
+        self.assertEqual(s._links_to(nodes, 1), [])
+        self.assertEqual(unflagged_links(nodes), [])
+        with self.assertRaises(ValueError):
+            s.bombchu_shop_open_from_start(raw)
 
     def test_serenade_never_moves_the_water_quest_back(self):
         source = self.read(s.SAGE_OF_WATER_FLOW)

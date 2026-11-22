@@ -185,6 +185,9 @@ class WithGame(unittest.TestCase):
                 patch = json.loads(json.dumps(world.patch(placements, [], '1', 'Moi', 1, self.build)))
                 self.assertEqual(patch['world'], World().fingerprint())
                 self.assertEqual(bridge.settings_from_patch(patch).full['spiritual_stones'], value)
+                if value == 'all':
+                    del patch['options']['spiritual_stones']
+                    self.assertEqual(bridge.settings_from_patch(patch).full['spiritual_stones'], 'all')
 
     def test_rules_and_victory(self):
         world = self.player()
